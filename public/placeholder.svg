@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="图片占位">
+  <rect width="480" height="270" fill="#eef2f9" />
+  <rect x="0.5" y="0.5" width="479" height="269" fill="none" stroke="#d7deea" />
+  <g fill="none" stroke="#b8c5da" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="196" y="96" width="88" height="72" rx="10" />
+    <circle cx="222" cy="120" r="9" />
+    <path d="M200 160l26-24 18 16 14-12 26 20" />
+  </g>
+  <text x="240" y="206" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="16" fill="#8b9ab3">图片占位</text>
+</svg>

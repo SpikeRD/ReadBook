@@ -1,0 +1,129 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+import { readEnv } from '../lib/env';
+import { listAccounts, siteStats } from '../lib/admin-stats';
+
+const user = Astro.locals.user;
+if (!user || user.role !== 'admin') {
+  return Astro.redirect('/');
+}
+
+const accounts = await listAccounts();
+const stats = await siteStats();
+const env = readEnv();
+const defaultPassword = env.adminPassword === 'admin';
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+---
+
+<BaseLayout current="/admin" title="账号管理">
+  <div class="row" style="justify-content:space-between; align-items:flex-start">
+    <div>
+      <h1 class="page-title">账号管理</h1>
+      <p class="page-sub" style="margin-bottom:14px">
+        当前登录：<strong>{user.username}</strong>（管理员）。这里可以新建、重置密码、删除账号。
+      </p>
+    </div>
+    <button class="btn btn-primary" id="create-account" type="button">＋ 新建账号</button>
+  </div>
+
+  {
+    defaultPassword && (
+      <div class="alert alert-error" style="margin-bottom:14px">
+        ⚠ 管理员密码仍为默认的 <code>admin</code>。请在项目根目录 <code>.env</code> 中修改
+        <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> 后重启服务。
+      </div>
+    )
+  }
+
+  <div class="stat-grid">
+    <div class="card stat">
+      <span class="stat-value">{stats.userCount}</span>
+      <span class="stat-label">普通账号</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-value">{stats.articleCount}</span>
+      <span class="stat-label">文章总数（{formatBytes(stats.articleBytes)}）</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-value">{stats.vocabCount}</span>
+      <span class="stat-label">生词总数</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-value">{siteConfig.auth.maxUsers}</span>
+      <span class="stat-label">账号上限（site.ts）</span>
+    </div>
+  </div>
+
+  <div id="admin-msg" style="margin-bottom:10px"></div>
+
+  <div class="card" style="padding:0; overflow-x:auto">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>用户名</th>
+          <th>角色</th>
+          <th>文章</th>
+          <th>生词</th>
+          <th>注册时间</th>
+          <th>最近登录</th>
+          <th style="text-align:right">操作</th>
+        </tr>
+      </thead>
+      <tbody id="account-rows">
+        {
+          accounts.map((a) => (
+            <tr data-id={a.id} data-username={a.username} data-role={a.role}>
+              <td>
+                <strong>{a.username}</strong>
+                {a.id === user.id && <span class="badge" style="margin-left:6px">当前</span>}
+              </td>
+              <td>{a.role === 'admin' ? <span class="badge role-admin">管理员</span> : <span class="badge">用户</span>}</td>
+              <td>{a.articleCount} 篇</td>
+              <td>{a.vocabCount} 词</td>
+              <td class="muted small">{formatDate(a.createdAt)}</td>
+              <td class="muted small">{formatDate(a.lastLoginAt)}</td>
+              <td style="text-align:right; white-space:nowrap">
+                {a.role !== 'admin' ? (
+                  <>
+                    <button class="btn btn-sm" data-act="reset" type="button">重置密码</button>
+                    <button class="btn btn-sm btn-danger" data-act="delete" type="button">删除</button>
+                  </>
+                ) : (
+                  <span class="muted small">在 .env 中修改</span>
+                )}
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <details class="card sync-card" style="margin-top:14px">
+    <summary><strong>管理员说明</strong><span class="muted small">（点开）</span></summary>
+    <ul class="sync-steps">
+      <li>管理员账号由 <code>.env</code> 的 <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> 控制，默认 <code>admin</code> / <code>admin</code>，修改后重启服务即生效，旧密码立即失效。</li>
+      <li>管理员同样使用登录页登录，登录后会看到「账号管理」入口。</li>
+      <li>「重置密码」会生成随机密码并显示一次，请及时告知对方；对方原有登录会失效。</li>
+      <li>「删除」会连同该用户的文章与生词本一起删除，不可恢复。</li>
+      <li>数据目录：<code>{stats.dataDir}/users/&lt;用户id&gt;/</code></li>
+    </ul>
+  </details>
+
+  <script>
+    import { initAdminPage } from '../scripts/client/admin-page';
+    initAdminPage();
+  </script>
+</BaseLayout>

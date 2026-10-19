@@ -1,0 +1,156 @@
+---
+import { siteConfig } from '../config/site';
+import { themeBootScript } from '../config/themes';
+import ThemeSwitcher from '../components/ThemeSwitcher.astro';
+import '../styles/global.css';
+
+interface Props {
+  /** 浏览器标签标题 */
+  title?: string;
+  /** 当前页面路径（保留给页面显式声明，导航高亮实际按请求路径自动判断） */
+  current?: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+const pageTitle = title ? `${title} · ${siteConfig.siteName}` : `${siteConfig.siteName} · ${siteConfig.tagline}`;
+const metaDesc = description || siteConfig.tagline;
+const nav = siteConfig.nav;
+
+const strip = (p: string) => p.replace(/\/+$/, '') || '/';
+const here = strip(Astro.url.pathname);
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={metaDesc} />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    {/*
+      主题启动：首帧前从 localStorage 恢复配色，避免深色主题下刷新闪白。
+      默认主题也在这里注入 CSS 变量，保证无 JS 时颜色正确。
+    */}
+    <script is:inline set:html={themeBootScript()} />
+    {/*
+      兜底：若 CSS 因任何原因没加载，下面的内联样式仍保证页面可读、无横向滚动
+      （需求：离线/受限网络下不能出现大面积错版）
+    */}
+    <style is:inline>
+      body { margin: 0; overflow-x: hidden; font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; background: var(--bg, #f5f6f8); color: var(--text, #1f2430); line-height: 1.65; }
+      .container { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+      .card { background: var(--card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+      img { max-width: 100%; height: auto; }
+      @media (max-width: 560px) { .container { padding: 0 12px; } }
+    </style>
+    {/* 正式样式由顶部 `import '../styles/global.css'` 打包进 /assets/*.css，无需再手动引入 */}
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="/"><i class="dot"></i><span>{siteConfig.siteName}</span></a>
+        <div class="nav-right">
+          <nav class="nav-links" aria-label="主导航">
+            {
+              nav.map((item) => (
+                <a href={item.href} aria-current={here === strip(item.href) ? 'page' : undefined}>
+                  {item.label}
+                </a>
+              ))
+            }
+            {
+              Astro.locals.user?.role === 'admin' && (
+                <a href="/admin" aria-current={here === '/admin' ? 'page' : undefined}>
+                  账号管理
+                </a>
+              )
+            }
+          </nav>
+          <ThemeSwitcher />
+          {
+            Astro.locals.user && (
+              <div class="account-menu" id="account-menu">
+                <button type="button" class="btn btn-sm account-toggle" id="account-toggle" aria-haspopup="true" aria-expanded="false">
+                  <span class="account-avatar" aria-hidden="true">{Astro.locals.user.username.slice(0, 1).toUpperCase()}</span>
+                  <span class="account-name">{Astro.locals.user.username}</span>
+                </button>
+                <div class="account-dropdown" id="account-dropdown" hidden>
+                  <div class="account-head">
+                    <strong>{Astro.locals.user.username}</strong>
+                    <span class="hint">
+                      {Astro.locals.user.role === 'admin' ? '管理员账号' : '数据已同步到账号'}
+                    </span>
+                  </div>
+                  {
+                    Astro.locals.user.role === 'admin' ? (
+                      <a class="account-item" href="/admin">账号管理</a>
+                    ) : (
+                      <button type="button" class="account-item" id="account-password">修改密码</button>
+                    )
+                  }
+                  <a class="account-item" href="/api/auth/logout">退出登录</a>
+                </div>
+              </div>
+            )
+          }
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="container">
+        <slot />
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-row">
+        <span>© {new Date().getFullYear()} {siteConfig.author}</span>
+        <span class="row" style="gap:14px">
+          {
+            siteConfig.footerLinks.map((link) => (
+              <a href={link.href} target={link.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+                {link.label}
+              </a>
+            ))
+          }
+        </span>
+      </div>
+    </footer>
+    <script>
+      import { setupAccountMenu } from '../scripts/client/account-menu';
+      setupAccountMenu();
+    </script>
+    <slot name="scripts" />
+    {/*
+      图片缺失兜底：任何 <img> 加载失败时自动换成占位图，不出现破图图标、不报错。
+      站点内的图片请放在 public/ 下引用。
+    */}
+    <script is:inline>
+      document.addEventListener(
+        'error',
+        function (event) {
+          var el = event.target;
+          if (!el || el.tagName !== 'IMG' || el.dataset.fallbackApplied) return;
+          el.dataset.fallbackApplied = '1';
+          if (el.dataset.fallback) {
+            // 头像这类圆形图：退化为字母占位
+            var span = document.createElement('div');
+            span.className = el.className;
+            span.setAttribute('aria-hidden', 'true');
+            span.textContent = el.dataset.fallback;
+            el.replaceWith(span);
+            return;
+          }
+          el.src = '/placeholder.svg';
+          el.alt = el.alt || '图片占位';
+        },
+        true
+      );
+    </script>
+  </body>
+</html>

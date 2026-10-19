@@ -1,0 +1,75 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+
+const { title, intro, paragraphs, contacts, avatar } = siteConfig.about;
+const initial = (siteConfig.author || 'R').trim().charAt(0).toUpperCase();
+const avatarSrc = avatar || '';
+const steps = [
+  { n: '1', t: '导入文章', d: '粘贴英文或上传 txt / md，标题可随时修改。' },
+  { n: '2', t: '点词查词', d: '阅读页点任意单词，弹出中文释义与发音，自动记入生词本。' },
+  { n: '3', t: '整理生词', d: '生词本按文章分组，可标「已掌握」、删除、导出 / 导入 JSON。' },
+];
+---
+
+<BaseLayout current="/about" title={title}>
+  <h1 class="page-title">{title}</h1>
+  <p class="page-sub">{siteConfig.tagline}</p>
+
+  <section class="card">
+    <div class="about-hero">
+      {
+        avatarSrc ? (
+          <img
+            class="avatar"
+            id="about-avatar"
+            src={avatarSrc}
+            alt={siteConfig.author}
+            loading="lazy"
+            data-fallback={initial}
+          />
+        ) : (
+          <div class="avatar" aria-hidden="true">{initial}</div>
+        )
+      }
+      <div style="flex:1; min-width:200px">
+        <h2 style="font-size:19px; margin-bottom:4px">{siteConfig.author}</h2>
+        <p class="muted small" style="margin:0">RPA 开发工程师 · Python</p>
+      </div>
+    </div>
+    <p style="margin-top:16px">{intro}</p>
+    {paragraphs.map((p) => <p>{p}</p>)}  </section>
+
+  <section class="card">
+    <h2 style="font-size:16px">这个站点怎么用</h2>
+    <div class="stack">
+      {
+        steps.map((s) => (
+          <div class="row" style="align-items:flex-start; flex-wrap:nowrap">
+            <div class="avatar" style="width:28px; height:28px; font-size:14px" aria-hidden="true">
+              {s.n}
+            </div>
+            <div style="min-width:0">
+              <strong>{s.t}</strong>
+              <div class="muted small">{s.d}</div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 style="font-size:16px">联系方式</h2>
+    <div class="stack">
+      {
+        contacts.map((c) => (
+          <div class="row small" style="justify-content:space-between">
+            <span class="muted">{c.label}</span>
+            <a href={c.href}>{c.text}</a>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

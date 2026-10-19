@@ -1,0 +1,29 @@
+{
+  "name": "english-reader-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "以英文阅读器为核心的个人网站（Astro + 轻量 Node 后端）",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node scripts/prepare.mjs && astro dev",
+    "build": "node scripts/prepare.mjs && astro build",
+    "start": "node scripts/prepare.mjs --prod && node ./dist/server/entry.mjs",
+    "preview": "npm run start",
+    "check": "astro check",
+    "test": "node --test \"tests/*.test.mjs\"",
+    "dict:rebuild": "node scripts/build-dict.mjs --force",
+    "dict:fetch": "node scripts/fetch-ecdict.mjs"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.4.4",
+    "astro": "^5.14.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.2"
+  }
+}

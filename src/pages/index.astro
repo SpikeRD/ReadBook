@@ -1,0 +1,51 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+import { listArticles, totalBytes, formatBytes } from '../lib/articles';
+
+const articles = await listArticles(Astro.locals.user!.id);
+const total = await totalBytes(Astro.locals.user!.id);
+const limits = siteConfig.limits;
+const quotaPct = Math.min(100, (total / limits.maxTotalBytes) * 100);
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+---
+
+<BaseLayout current="/" title="文章列表">
+  <div class="row" style="justify-content:space-between; margin-bottom:6px">
+    <h1 class="page-title">我的文章</h1>
+    <a class="btn btn-primary" href="/import">＋ 导入文章</a>
+  </div>
+  <p class="page-sub">
+    共 {articles.length} 篇 · 正文 {formatBytes(total)} / 上限 2GB
+    {quotaPct > 70 ? `（已使用 ${quotaPct.toFixed(0)}%，建议清理）` : ''}
+  </p>
+
+  {
+    articles.length === 0 ? (
+      <div class="card empty">
+        <p>还没有文章。</p>
+        <p class="small">打开「导入」页，粘贴一段英文或上传 txt / md 文件即可开始。</p>
+        <a class="btn btn-primary" href="/import">去导入</a>
+      </div>
+    ) : (
+      articles.map((a) => (
+        <a class="card article-card" href={`/read/${a.id}`}>
+          <article>
+            <h3>{a.title}</h3>
+            <p class="article-excerpt">{a.excerpt}</p>
+            <div class="meta">
+              <span>{a.wordCount} 词</span>
+              <span>{formatBytes(a.bytes)}</span>
+              <span>{formatDate(a.createdAt)}</span>
+              <span class="badge">可阅读</span>
+            </div>
+          </article>
+        </a>
+      ))
+    )
+  }
+</BaseLayout>

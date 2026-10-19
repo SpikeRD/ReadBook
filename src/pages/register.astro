@@ -1,0 +1,120 @@
+---
+import BareLayout from '../layouts/BareLayout.astro';
+import { siteConfig } from '../config/site';
+import { countUsers } from '../lib/auth';
+
+const isFirst = (await countUsers()) === 0;
+const allowRegister = siteConfig.auth.allowRegistration;
+const minPassword = siteConfig.auth.minPasswordLength;
+---
+
+<BareLayout title="注册">
+  <div class="auth-wrap">
+    <form class="auth-card" id="register-form" novalidate>
+      <div class="auth-brand">
+        <i class="dot"></i><span>{siteConfig.siteName}</span>
+      </div>
+      <p class="auth-sub">{isFirst ? '创建站长账号' : '注册新账号'}</p>
+
+      {
+        !allowRegister ? (
+          <div class="alert alert-error">本站已关闭自助注册，请联系站长开通账号。</div>
+        ) : (
+          <>
+            {isFirst && (
+              <div class="alert alert-ok" style="margin-bottom:12px">
+                这是本站第一个账号，注册后会接管本机已有的示例文章。
+              </div>
+            )}
+            <label class="field" for="username">
+              用户名
+            </label>
+            <input
+              id="username"
+              name="username"
+              type="text"
+              autocomplete="username"
+              required
+              placeholder={`${siteConfig.auth.minUsernameLength}-${siteConfig.auth.maxUsernameLength} 个字符`}
+            />
+
+            <label class="field" for="password" style="margin-top:12px">密码</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              required
+              placeholder={`至少 ${minPassword} 位`}
+            />
+
+            <label class="field" for="password2" style="margin-top:12px">确认密码</label>
+            <input id="password2" name="password2" type="password" autocomplete="new-password" required placeholder="再输入一次" />
+
+            <div id="register-msg" aria-live="polite" style="margin-top:10px"></div>
+
+            <button class="btn btn-primary" type="submit" id="register-btn" style="width:100%; margin-top:12px">
+              注册并登录
+            </button>
+          </>
+        )
+      }
+
+      <p class="auth-foot">已有账号？<a href="/login">去登录</a></p>
+      <p class="hint" style="margin-top:8px">
+        账号只保存你自己的文章与生词本，其他用户看不到你的内容；换设备登录同一账号即可继续。
+      </p>
+    </form>
+  </div>
+
+  <script is:inline>
+    const form = document.getElementById('register-form');
+    const btn = document.getElementById('register-btn');
+    const msg = document.getElementById('register-msg');
+    if (btn) {
+      const username = document.getElementById('username');
+      const password = document.getElementById('password');
+      const password2 = document.getElementById('password2');
+
+      function esc(s) {
+        return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+      }
+      function showError(text) {
+        msg.innerHTML = '<div class="alert alert-error">' + esc(text) + '</div>';
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        msg.innerHTML = '';
+        if (!username.value.trim() || !password.value) {
+          showError('请填写用户名和密码。');
+          return;
+        }
+        if (password.value !== password2.value) {
+          showError('两次输入的密码不一致。');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = '注册中…';
+        try {
+          const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            location.href = '/';
+            return;
+          }
+          showError(data.error || '注册失败，请稍后再试。');
+        } catch {
+          showError('网络错误，请稍后再试。');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '注册并登录';
+        }
+      });
+    }
+  </script>
+</BareLayout>

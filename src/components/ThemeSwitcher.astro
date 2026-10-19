@@ -1,0 +1,106 @@
+---
+// 主题切换控件：下拉式色板（不依赖 JS 框架，纯原生实现）
+import { themes } from '../config/themes';
+---
+
+<div class="theme-switch" id="theme-switch">
+  <button
+    type="button"
+    class="btn btn-sm theme-toggle"
+    id="theme-toggle"
+    aria-haspopup="true"
+    aria-expanded="false"
+    title="切换阅读背景"
+  >
+    <span class="theme-dot" id="theme-dot" aria-hidden="true"></span>
+    <span id="theme-label">白天</span>
+  </button>
+  <div class="theme-menu" id="theme-menu" role="menu" hidden>
+    {
+      themes.map((t) => (
+        <button type="button" class="theme-option" role="menuitemradio" data-theme-id={t.id} aria-checked="false">
+          <span class="theme-dot" style={`background:${t.colors.bg};border-color:${t.colors.border}`} aria-hidden="true" />
+          <span class="theme-option-name">{t.name}</span>
+          <span class="theme-swatch" style={`background:${t.colors.card};border-color:${t.colors.border}`} aria-hidden="true" />
+        </button>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  import { THEME_STORAGE_KEY, themes, getTheme, themeVars } from '../config/themes';
+
+  const root = document.getElementById('theme-switch');
+  const toggle = document.getElementById('theme-toggle');
+  const menu = document.getElementById('theme-menu');
+  const label = document.getElementById('theme-label');
+  const dot = document.getElementById('theme-dot');
+
+  function apply(id: string): void {
+    const theme = getTheme(id);
+    const vars = themeVars(theme);
+    const s = document.documentElement.style;
+    for (const [k, v] of Object.entries(vars)) s.setProperty(k, v);
+    document.documentElement.dataset.theme = theme.id;
+    s.colorScheme = theme.dark ? 'dark' : 'light';
+    localStorage.setItem(THEME_STORAGE_KEY, theme.id);
+
+    if (label) label.textContent = theme.name;
+    if (dot) {
+      dot.style.background = theme.colors.bg;
+      dot.style.borderColor = theme.colors.muted;
+    }
+    for (const opt of menu?.querySelectorAll<HTMLElement>('.theme-option') || []) {
+      opt.setAttribute('aria-checked', String(opt.dataset.themeId === theme.id));
+    }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme.metaThemeColor);
+  }
+
+  function syncLabel(): void {
+    const current = document.documentElement.dataset.theme || localStorage.getItem(THEME_STORAGE_KEY) || 'day';
+    if (label) label.textContent = getTheme(current).name;
+  }
+
+  toggle?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const open = menu?.hidden ?? true;
+    if (menu) menu.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+
+  menu?.addEventListener('click', (event) => {
+    const opt = (event.target as HTMLElement).closest<HTMLElement>('.theme-option');
+    if (!opt?.dataset.themeId) return;
+    apply(opt.dataset.themeId);
+    menu.hidden = true;
+    toggle?.setAttribute('aria-expanded', 'false');
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!root?.contains(event.target as Node)) {
+      if (menu) menu.hidden = true;
+      toggle?.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && menu) {
+      menu.hidden = true;
+      toggle?.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // 其他标签页切换主题时同步
+  window.addEventListener('storage', (event) => {
+    if (event.key === THEME_STORAGE_KEY && event.newValue) apply(event.newValue);
+  });
+
+  syncLabel();
+  // 供调试/自动化使用
+  (window as unknown as { readbookTheme: { apply: (id: string) => void; themes: typeof themes } }).readbookTheme = {
+    apply,
+    themes,
+  };
+</script>

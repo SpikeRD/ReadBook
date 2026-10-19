@@ -1,0 +1,20 @@
+[
+  {
+    "id": "3525fafd2636342d",
+    "username": "admin",
+    "passwordHash": "scrypt$zi98WnJpWu+90F/ItWY1EQ==$B0G5bllDUVupHARcwBNTiDvJk9VEI5JbJj5AAKb9au7jd3yjHKqhmPp+X0wZLPwGWCR4nU1aXwhLWrZCN+cQTw==",
+    "role": "admin",
+    "sessionVersion": 1,
+    "createdAt": "2026-10-19T10:25:45.169Z",
+    "lastLoginAt": "2026-10-19T14:59:13.310Z"
+  },
+  {
+    "id": "018d73916a2f65ba",
+    "username": "test",
+    "passwordHash": "scrypt$ZD00RJ/zA82fHwVdoVhPGg==$DzLj9fePugrxL99+Pt+DKNBC2USOrKf4KJRhGM4boM0IrvjvC7R+e8NgEKTQnI+tD8oUrK0SZ3vjPMiqbLIhjQ==",
+    "role": "user",
+    "sessionVersion": 1,
+    "createdAt": "2026-10-19T14:29:31.604Z",
+    "lastLoginAt": "2026-10-19T14:29:40.495Z"
+  }
+]

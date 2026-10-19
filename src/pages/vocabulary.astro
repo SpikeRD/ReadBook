@@ -1,0 +1,65 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { listArticles } from '../lib/articles';
+
+// 文章可能已被删除，用现有标题覆盖显示名
+const articles = await listArticles(Astro.locals.user!.id);
+const articleTitles = Object.fromEntries(articles.map((a) => [a.id, a.title]));
+---
+
+<BaseLayout current="/vocabulary" title="生词本">
+  <div class="row" style="justify-content:space-between">
+    <h1 class="page-title">生词本</h1>
+    <div class="row">
+      <button class="btn btn-sm" id="export-btn" type="button">导出 JSON</button>
+      <button class="btn btn-sm" id="import-btn" type="button">导入 JSON</button>
+      <input type="file" id="import-file" accept=".json,application/json" style="display:none" />
+    </div>
+  </div>
+  <p class="page-sub">
+    生词按分组保存在你的账号里，换设备登录同一账号就能接着用。某篇文章的生词只属于该文章，各篇文章之间互不相通；你也可以新建自己的分组。
+    <span id="vocab-total"></span>
+  </p>
+
+  <details class="card sync-card" id="sync-card">
+    <summary>
+      <strong>换设备 / 备份 / 换账号怎么办？</strong>
+      <span class="muted small">（点开看说明）</span>
+    </summary>
+    <ol class="sync-steps">
+      <li><b>换设备</b>：在新设备打开本站，用同一个用户名登录即可，生词本与文章会自动同步，什么都不用做。</li>
+      <li><b>备份</b>：点「导出 JSON」，得到含分组结构的 <code>readbook-vocabulary-日期.json</code>，可放在网盘留底。</li>
+      <li><b>恢复 / 换账号</b>：点「导入 JSON」，<b>合并</b>保留已有点只补新词，<b>替换</b>会先清空当前账号的生词再导入。</li>
+      <li>导入后提示「新增 X 个，跳过重复 Y 个」。同一个词在不同分组里算不同词条，不会被误判重复。</li>
+    </ol>
+    <p class="hint" style="margin:8px 0 0">
+      数据只属于你的账号，其他用户看不到；文章与全文翻译缓存同样存在服务器上，按账号隔离。
+    </p>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-sm" id="export-btn-2" type="button">立即导出</button>
+      <button class="btn btn-sm" id="import-btn-2" type="button">立即导入</button>
+    </div>
+  </details>
+
+  <div class="card">
+    <div class="row" style="gap:10px">
+      <input type="search" id="search" placeholder="搜索单词或释义…" style="flex:1; min-width:180px; max-width:none" />
+      <label class="row small" style="gap:6px; white-space:nowrap">
+        <input type="checkbox" id="hide-mastered" /> 隐藏已掌握
+      </label>
+      <button class="btn btn-sm btn-primary" id="new-group-btn" type="button">＋ 新建分组</button>
+      <button class="btn btn-sm btn-danger" id="clear-btn" type="button">清空</button>
+    </div>
+    <div id="vocab-msg" style="margin-top:10px"></div>
+  </div>
+
+  <div class="group-tabs" id="group-tabs" role="tablist" aria-label="生词分组"></div>
+
+  <div id="vocab-list"></div>
+
+  <script id="vocab-article-titles" type="application/json" set:html={JSON.stringify(articleTitles)} />
+  <script>
+    import { initVocabularyPage } from '../scripts/client/vocabulary-page';
+    initVocabularyPage();
+  </script>
+</BaseLayout>

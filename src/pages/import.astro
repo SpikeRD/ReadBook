@@ -1,0 +1,153 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+
+const limits = siteConfig.limits;
+const maxKb = Math.round(limits.maxArticleBytes / 1024);
+---
+
+<BaseLayout current="/import" title="导入文章">
+  <h1 class="page-title">导入文章</h1>
+  <p class="page-sub">粘贴英文文本，或上传 txt / md 文件。单篇上限 {maxKb} KB，全部正文上限 2GB。</p>
+
+  <form class="card stack" id="import-form" novalidate>
+    <div>
+      <label class="field" for="title">标题（可留空，自动取正文第一行）</label>
+      <input type="text" id="title" name="title" placeholder="例如：The Quiet Power of Reading" maxlength="160" />
+    </div>
+
+    <div>
+      <label class="field" for="file">上传文件（.txt / .md）</label>
+      <label class="file-drop" id="drop" for="file">
+        <input type="file" id="file" name="file" accept=".txt,.md,.markdown,text/plain,text/markdown" style="display:none" />
+        <span id="drop-text">点击选择文件，或把文件拖到这里</span>
+      </label>
+      <p class="hint" style="margin:6px 0 0">选择文件后会自动填入下方文本框，可继续编辑。</p>
+    </div>
+
+    <div>
+      <label class="field" for="text">正文</label>
+      <textarea id="text" name="text" placeholder="Paste your English article here…&#10;&#10;用空行分段；独占一行的 # 标题 会渲染成小标题。"></textarea>
+      <p class="hint" id="counter" style="margin:6px 0 0">0 词 · 0 KB</p>
+    </div>
+
+    <div id="import-msg"></div>
+
+    <div class="row">
+      <button class="btn btn-primary" type="submit" id="submit-btn">导入并开始阅读</button>
+      <a class="btn" href="/">取消</a>
+    </div>
+  </form>
+
+  <script>
+    const form = document.getElementById('import-form') as HTMLFormElement;
+    const titleInput = document.getElementById('title') as HTMLInputElement;
+    const textArea = document.getElementById('text') as HTMLTextAreaElement;
+    const fileInput = document.getElementById('file') as HTMLInputElement;
+    const drop = document.getElementById('drop') as HTMLElement;
+    const dropText = document.getElementById('drop-text') as HTMLElement;
+    const counter = document.getElementById('counter') as HTMLElement;
+    const msg = document.getElementById('import-msg') as HTMLElement;
+    const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+
+    const MAX_BYTES = 1024 * 1024;
+
+    function bytesOf(s: string): number {
+      return new TextEncoder().encode(s).length;
+    }
+
+    function updateCounter(): void {
+      const words = textArea.value.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g)?.length ?? 0;
+      const kb = (bytesOf(textArea.value) / 1024).toFixed(1);
+      counter.textContent = `${words} 词 · ${kb} KB`;
+      counter.style.color = bytesOf(textArea.value) > MAX_BYTES ? '#a12b2b' : '';
+    }
+
+    textArea.addEventListener('input', updateCounter);
+
+    async function readFile(file: File): Promise<void> {
+      if (file.size > MAX_BYTES) {
+        showError('文件超过 1MB，请拆分后再导入。');
+        return;
+      }
+      const text = await file.text();
+      textArea.value = text;
+      if (!titleInput.value) {
+        titleInput.value = file.name.replace(/\.(txt|md|markdown)$/i, '');
+      }
+      dropText.textContent = `已选择：${file.name}`;
+      updateCounter();
+    }
+
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files?.[0];
+      if (f) void readFile(f);
+    });
+
+    ['dragover', 'dragenter'].forEach((evt) =>
+      drop.addEventListener(evt, (e) => {
+        e.preventDefault();
+        drop.style.borderColor = '#3b6ef6';
+      })
+    );
+    ['dragleave', 'drop'].forEach((evt) =>
+      drop.addEventListener(evt, (e) => {
+        e.preventDefault();
+        drop.style.borderColor = '';
+      })
+    );
+    drop.addEventListener('drop', (e) => {
+      const f = (e as DragEvent).dataTransfer?.files?.[0];
+      if (f) void readFile(f);
+    });
+
+    function showError(text: string): void {
+      msg.innerHTML = `<div class="alert alert-error">${escapeHtml(text)}</div>`;
+    }
+    function showOk(text: string): void {
+      msg.innerHTML = `<div class="alert alert-ok">${escapeHtml(text)}</div>`;
+    }
+    function escapeHtml(s: string): string {
+      return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      msg.innerHTML = '';
+      const text = textArea.value.trim();
+      if (!text) {
+        showError('请先粘贴文本或上传文件。');
+        return;
+      }
+      if (bytesOf(text) > MAX_BYTES) {
+        showError('内容超过单篇 1MB 上限，请拆分后再导入。');
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = '导入中…';
+      try {
+        const res = await fetch('/api/articles', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: titleInput.value.trim(), text }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          showError(data.error || '导入失败，请稍后再试。');
+          return;
+        }
+        showOk(`导入成功：${data.article.title}（${data.article.wordCount} 词），正在打开阅读页…`);
+        setTimeout(() => {
+          location.href = `/read/${data.article.id}`;
+        }, 600);
+      } catch {
+        showError('网络错误，导入失败。');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '导入并开始阅读';
+      }
+    });
+
+    updateCounter();
+  </script>
+</BaseLayout>

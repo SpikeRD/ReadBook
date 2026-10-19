@@ -1,0 +1,38 @@
+# docker compose up -d --build
+# 映射到宿主机 4321 端口；数据持久化在命名卷 readbook-data 中。
+services:
+  readbook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: readbook:latest
+    container_name: readbook
+    restart: unless-stopped
+    ports:
+      - "4321:4321"
+    environment:
+      # 上线前务必修改（也可以用 .env 文件，见 compose 的 env_file）
+      SESSION_SECRET: ${SESSION_SECRET:-please-change-this-to-a-long-random-string}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+      ONLINE_DICT_URL: ${ONLINE_DICT_URL:-}
+      ONLINE_TRANSLATE_URL: ${ONLINE_TRANSLATE_URL:-}
+    volumes:
+      - readbook-data:/app/data
+    # 2C2G 服务器保护：容器最多 1G，避免词库/正文把宿主机撑爆
+    mem_limit: 1g
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4321/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  readbook-data:

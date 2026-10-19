@@ -1,0 +1,29 @@
+---
+// 口令页布局：极简，不显示顶部导航，但保留主题（避免深色用户被白屏晃眼）
+import { siteConfig } from '../config/site';
+import { themeBootScript } from '../config/themes';
+import ThemeSwitcher from '../components/ThemeSwitcher.astro';
+import '../styles/global.css';
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title || '访问验证'} · {siteConfig.siteName}</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script is:inline set:html={themeBootScript()} />
+    {/* 正式样式由顶部 `import '../styles/global.css'` 打包进 /assets/*.css */}
+  </head>
+  <body>
+    <div style="position:fixed; top:14px; right:14px; z-index:30">
+      <ThemeSwitcher />
+    </div>
+    <slot />
+  </body>
+</html>

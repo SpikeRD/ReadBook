@@ -1,0 +1,89 @@
+---
+import BareLayout from '../layouts/BareLayout.astro';
+import { siteConfig } from '../config/site';
+import { countUsers } from '../lib/auth';
+
+const next = Astro.url.searchParams.get('next') || '/';
+const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+const hasUsers = (await countUsers()) > 0;
+const allowRegister = siteConfig.auth.allowRegistration;
+---
+
+<BareLayout title="登录">
+  <div class="auth-wrap">
+    <form class="auth-card" id="login-form" autocomplete="on" novalidate>
+      <div class="auth-brand">
+        <i class="dot"></i><span>{siteConfig.siteName}</span>
+      </div>
+      <p class="auth-sub">{siteConfig.tagline}</p>
+
+      <label class="field" for="username">用户名</label>
+      <input id="username" name="username" type="text" autocomplete="username" required placeholder="你的用户名" />
+
+      <label class="field" for="password" style="margin-top:12px">密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="密码" />
+
+      <div id="login-msg" aria-live="polite" style="margin-top:10px"></div>
+
+      <button class="btn btn-primary" type="submit" id="login-btn" style="width:100%; margin-top:12px">登录</button>
+
+      {
+        allowRegister && (
+          <p class="auth-foot">
+            还没有账号？
+            <a href={hasUsers ? '/register' : '/register?first=1'}>{hasUsers ? '注册一个' : '创建第一个账号（站长）'}</a>
+          </p>
+        )
+      }
+      {!hasUsers && <p class="hint" style="margin-top:8px">本站还没有账号{allowRegister ? '，第一个注册的账号会成为站长并接管本机已有的文章' : '，请先由站长在服务器上创建'}。</p>}
+      <p class="hint" style="margin-top:8px">{siteConfig.auth.loginHint}</p>
+      <input type="hidden" id="next" value={safeNext} />
+    </form>
+  </div>
+
+  <script is:inline>
+    const form = document.getElementById('login-form');
+    const username = document.getElementById('username');
+    const password = document.getElementById('password');
+    const btn = document.getElementById('login-btn');
+    const msg = document.getElementById('login-msg');
+    const nextEl = document.getElementById('next');
+
+    function esc(s) {
+      return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    }
+    function showError(text) {
+      msg.innerHTML = '<div class="alert alert-error">' + esc(text) + '</div>';
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      msg.innerHTML = '';
+      if (!username.value.trim() || !password.value) {
+        showError('请输入用户名和密码。');
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '登录中…';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          location.href = nextEl && nextEl.value ? nextEl.value : '/';
+          return;
+        }
+        showError(data.error || '登录失败，请稍后再试。');
+        password.select();
+      } catch {
+        showError('网络错误，请稍后再试。');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '登录';
+      }
+    });
+  </script>
+</BareLayout>

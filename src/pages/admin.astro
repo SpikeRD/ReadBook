@@ -13,6 +13,8 @@ const accounts = await listAccounts();
 const stats = await siteStats();
 const env = readEnv();
 const defaultPassword = env.adminPassword === 'admin';
+/** 是否通过环境变量（Docker / compose 的 environment）设置了管理员密码 */
+const passwordFromEnv = env.adminPasswordConfigured;
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -41,8 +43,18 @@ function formatDate(iso?: string): string {
   {
     defaultPassword && (
       <div class="alert alert-error" style="margin-bottom:14px">
-        ⚠ 管理员密码仍为默认的 <code>admin</code>。请在项目根目录 <code>.env</code> 中修改
-        <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> 后重启服务。
+        ⚠ 管理员密码仍为默认的 <code>admin</code>。请设置 <code>ADMIN_PASSWORD</code> 后重启服务：
+        {passwordFromEnv ? (
+          <span>
+            （已通过环境变量提供，请改成强密码后重新 <code>docker compose up -d</code>。）
+          </span>
+        ) : (
+          <span>
+            （Docker 部署时用 <code>environment</code> / <code>-e</code> 传入；本机运行则改项目根目录的{' '}
+            <code>.env</code>。注意 compose 不会自动读取 <code>.env</code>，需要写进{' '}
+            <code>docker-compose.yml</code> 的 <code>environment</code> 或设置同名环境变量。）
+          </span>
+        )}
       </div>
     )
   }

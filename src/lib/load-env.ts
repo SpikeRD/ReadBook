@@ -6,19 +6,22 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-const envFile = path.resolve(process.cwd(), '.env');
+// DSH_TEST_NO_ENV=1 时完全跳过 .env（测试用：让测试进程自己控制环境变量）
+if (process.env.DSH_TEST_NO_ENV !== '1') {
+  const envFile = path.resolve(process.cwd(), '.env');
 
-if (existsSync(envFile)) {
-  // 记录已被外部显式设置的键，加载 .env 后还原它们
-  const preset = new Map<string, string>();
-  for (const key of ['SESSION_SECRET', 'SESSION_DAYS', 'DATA_DIR', 'HOST', 'PORT', 'COOKIE_SECURE', 'ONLINE_DICT_URL', 'ONLINE_TRANSLATE_URL', 'ADMIN_USERNAME', 'ADMIN_PASSWORD']) {
-    const v = process.env[key];
-    if (v !== undefined) preset.set(key, v);
+  if (existsSync(envFile)) {
+    // 记录已被外部显式设置的键，加载 .env 后还原它们
+    const preset = new Map<string, string>();
+    for (const key of ['SESSION_SECRET', 'SESSION_DAYS', 'DATA_DIR', 'HOST', 'PORT', 'COOKIE_SECURE', 'ONLINE_DICT_URL', 'ONLINE_TRANSLATE_URL', 'ADMIN_USERNAME', 'ADMIN_PASSWORD']) {
+      const v = process.env[key];
+      if (v !== undefined) preset.set(key, v);
+    }
+    try {
+      process.loadEnvFile(envFile);
+    } catch {
+      /* .env 格式有问题时忽略，使用默认值 */
+    }
+    for (const [key, value] of preset) process.env[key] = value;
   }
-  try {
-    process.loadEnvFile(envFile);
-  } catch {
-    /* .env 格式有问题时忽略，使用默认值 */
-  }
-  for (const [key, value] of preset) process.env[key] = value;
 }

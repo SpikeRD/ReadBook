@@ -19,6 +19,20 @@ const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: n
 
 export type Role = 'admin' | 'user';
 
+/**
+ * 把「读用户表 → 改 → 写回」串起来执行。
+ * 此前并发请求（例如多标签页同时首次登录、或首屏多个请求同时触发管理员同步）
+ * 各自读到旧表再写回，会丢掉彼此的改动，甚至会为重名账号写进多条记录。
+ */
+function withUsersLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = usersQueue.then(fn, fn);
+  usersQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export interface UserRecord {
   id: string;
   username: string;
@@ -46,6 +60,8 @@ function usersFile(): string {
 }
 
 let writeQueue: Promise<void> = Promise.resolve();
+/** 用户表读-改-写的串行锁（见 withUsersLock） */
+let usersQueue: Promise<unknown> = Promise.resolve();
 let cache: UserRecord[] | null = null;
 
 async function loadUsers(force = false): Promise<UserRecord[]> {
@@ -178,11 +194,18 @@ function matchesAdminEnv(username: string, password: string): boolean {
  * 确保管理员账号存在且与 .env 一致：
  *   - .env 里配置了管理员，但 users.json 里没有 → 创建（role=admin，密码用 .env 的）
  *   - .env 里改了密码 → 更新哈希并让旧会话失效
- * 登录、中间件都会在需要时调用，开销很小（有缓存）。
+ * 登录、注册都会在需要时调用；整个「查重 → 创建」过程加锁，并发时只会落一条。
  */
 export async function ensureAdminAccount(): Promise<UserRecord | null> {
   const env = readEnv();
-  if (!env.adminUsername || !env.adminPassword) return null;
+  // 没有用户名就没有「.env 管理员」这回事；此时绝不能往下走到建账号的分支
+  // （曾经因为只校验密码，配了空用户名时会在用户表里写出一条空用户名管理员）
+  if (!env.adminUsername) return null;
+  return withUsersLock(() => ensureAdminAccountLocked(env));
+}
+
+async function ensureAdminAccountLocked(env: ReturnType<typeof readEnv>): Promise<UserRecord | null> {
+  if (!env.adminUsername) return null;
   const list = await loadUsers();
   const existing = list.find((u) => u.username.toLowerCase() === env.adminUsername.toLowerCase());
 
@@ -206,13 +229,45 @@ export async function ensureAdminAccount(): Promise<UserRecord | null> {
     changed = true;
   }
   // 与 .env 中的密码保持一致：不一致就更新哈希并让旧会话失效
-  if (!(await verifyPassword(env.adminPassword, existing.passwordHash))) {
+  const samePassword = await verifyPassword(env.adminPassword, existing.passwordHash);
+  if (!samePassword) {
     existing.passwordHash = await hashPassword(env.adminPassword);
     existing.sessionVersion = (existing.sessionVersion || 1) + 1;
     changed = true;
   }
   if (changed) await saveUsers(list);
   return existing;
+}
+
+/**
+ * 历史上并发首次登录可能写出多条同名管理员记录。
+ * 启动时把重复项改名为「<用户名>_dup<序号>」并降为普通用户，只保留最早的一条。
+ * 幂等：没有重复时什么都不做。
+ */
+export async function dedupeAdminRecords(): Promise<number> {
+  const env = readEnv();
+  if (!env.adminUsername) return 0;
+  return withUsersLock(async () => {
+    // 强制从磁盘重读：历史重复记录可能是绕过本进程写进去的（或旧版本留下的），内存缓存不可信
+    const list = await loadUsers(true);
+    const name = env.adminUsername.toLowerCase();
+    const same = list.filter((u) => u.username.toLowerCase() === name);
+    if (same.length <= 1) return 0;
+    same.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+    const taken = new Set(list.map((u) => u.username.toLowerCase()));
+    let n = 0;
+    for (const dup of same.slice(1)) {
+      n++;
+      let alias = `${dup.username}_dup${n}`;
+      while (taken.has(alias.toLowerCase())) alias = `${dup.username}_dup${n}_${dup.id.slice(0, 4)}`;
+      taken.add(alias.toLowerCase());
+      dup.username = alias;
+      dup.role = 'user';
+      dup.sessionVersion = (dup.sessionVersion || 1) + 1;
+    }
+    await saveUsers(list);
+    return n;
+  });
 }
 
 export async function isAdmin(userId: string): Promise<boolean> {
@@ -237,24 +292,30 @@ export async function registerUser(
     return { ok: false, error: '这个用户名是管理员专用，请换一个' };
   }
 
-  await ensureAdminAccount();
-  const list = await loadUsers();
-  if (await findUserByName(username)) return { ok: false, error: '这个用户名已经被使用了' };
-  if (list.filter((u) => u.role !== 'admin').length >= siteConfig.auth.maxUsers) {
-    return { ok: false, error: '站点用户数已达上限，请联系管理员。' };
-  }
+  return withUsersLock(async () => {
+    await ensureAdminAccountLocked(env);
+    const list = await loadUsers();
+    const bootstrapAdmin = !env.adminUsername && list.length === 0;
+    if (list.some((u) => u.username.toLowerCase() === username.trim().toLowerCase())) {
+      return { ok: false, error: '这个用户名已经被使用了' };
+    }
+    if (!bootstrapAdmin && list.filter((u) => u.role !== 'admin').length >= siteConfig.auth.maxUsers) {
+      return { ok: false, error: '站点用户数已达上限，请联系管理员。' };
+    }
 
-  const user: UserRecord = {
-    id: randomBytes(8).toString('hex'),
-    username: username.trim(),
-    passwordHash: await hashPassword(password),
-    role: 'user',
-    sessionVersion: 1,
-    createdAt: new Date().toISOString(),
-  };
-  list.push(user);
-  await saveUsers(list);
-  return { ok: true, user: toPublic(user) };
+    const user: UserRecord = {
+      id: randomBytes(8).toString('hex'),
+      username: username.trim(),
+      passwordHash: await hashPassword(password),
+      // 站点没有管理员时（未配置 ADMIN_*），第一个注册的人成为站长，否则没人能进账号管理
+      role: list.every((u) => u.role !== 'admin') ? 'admin' : 'user',
+      sessionVersion: 1,
+      createdAt: new Date().toISOString(),
+    };
+    list.push(user);
+    await saveUsers(list);
+    return { ok: true, user: toPublic(user) };
+  });
 }
 
 export async function authenticate(

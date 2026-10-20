@@ -12,7 +12,7 @@
 import { spawnSync } from 'node:child_process';
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dataDir = process.env.DATA_DIR || path.join(root, 'data');
@@ -46,10 +46,28 @@ async function ensureDirs() {
   await fs.mkdir(dataDir, { recursive: true });
 }
 
+/**
+ * 清理历史遗留的重复管理员记录（早期版本并发首次登录会写出多条同名 admin）。
+ * 幂等：没有重复时什么都不做；失败只告警，不阻断启动。
+ */
+async function dedupeAdmins() {
+  const file = path.join(dataDir, 'users.json');
+  if (!existsSync(file)) return;
+  try {
+    // Windows 上绝对路径不能直接 import，必须转成 file:// URL
+    const mod = await import(pathToFileURL(path.join(root, 'src', 'lib', 'auth.ts')).href);
+    const n = await mod.dedupeAdminRecords();
+    if (n > 0) log(`已清理 ${n} 条重复的管理员记录（改名为 *_dupN 并降为普通用户）`);
+  } catch (err) {
+    log(`跳过管理员记录检查：${err.message}`);
+  }
+}
+
 try {
   await ensureDirs();
   await ensureDict();
   await ensureEnv();
+  await dedupeAdmins();
   log('准备完成');
 } catch (err) {
   console.error('[prepare] 失败：', err.message);

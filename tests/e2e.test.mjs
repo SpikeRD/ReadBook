@@ -341,6 +341,99 @@ test('全文翻译：参数校验、按页翻译、命中缓存、译文随页�
   assert.match(page.text, /data-has-cache="1"/, '已翻译的内容应随页面一起渲染');
 });
 
+/* ───────────── 阅读页：分页跳转 / 两栏对照 / 已移除的按钮 ───────────── */
+
+const LONG_TEXT = '# Chapter One\n\n' + Array.from({ length: 40 }, (_, i) =>
+  `Paragraph ${i + 1} talks about memory, habits, and the quiet discipline of reading a difficult book slowly while keeping notes and looking up unfamiliar words.`
+).join('\n\n');
+
+test('阅读页：分页区提供「跳至指定页码」表单，且页码越界被夹到有效范围', async () => {
+  const cookie = await register(uniq());
+  const created = await req('/api/articles', { method: 'POST', cookie, body: { title: '跳页测试', text: LONG_TEXT } });
+  const id = created.data.article.id;
+
+  const first = await req(`/read/${id}`, { cookie, origin: null });
+  assert.equal(first.status, 200);
+  assert.match(first.text, /<form class="pager-jump" method="get" action="\/read\/[a-z0-9]+">/);
+  assert.match(first.text, /id="page-jump"[^>]*name="page"[^>]*type="number"/);
+  assert.match(first.text, /id="page-jump"[^>]*min="1"[^>]*max="(\d+)"/);
+  const total = Number(/id="page-jump"[^>]*max="(\d+)"/.exec(first.text)[1]);
+  assert.ok(total > 1, '长文应分成多页，分页区才会出现跳页入口');
+
+  // 跳到第 2 页：高亮页码与输入框当前值都要同步
+  const second = await req(`/read/${id}?page=2`, { cookie, origin: null });
+  assert.match(second.text, /<a class="pager-num active"[^>]*aria-current="page"[^>]*>\s*2\s*<\/a>/);
+  assert.match(second.text, /id="page-jump"[^>]*value="2"/);
+
+  // 越界：超过末页夹到末页，小于 1 夹到第 1 页
+  const over = await req(`/read/${id}?page=999`, { cookie, origin: null });
+  assert.match(over.text, new RegExp(`id="page-jump"[^>]*value="${total}"`));
+  const under = await req(`/read/${id}?page=0`, { cookie, origin: null });
+  assert.match(under.text, /id="page-jump"[^>]*value="1"/);
+});
+
+test('阅读页：不再提供「朗读标题」，两栏脚本与样式已按行带网格发布', async () => {
+  const cookie = await register(uniq());
+  const created = await req('/api/articles', { method: 'POST', cookie, body: { title: '对照测试', text: 'First paragraph.\n\nSecond paragraph here.' } });
+  const id = created.data.article.id;
+  const page = await req(`/read/${id}`, { cookie, origin: null });
+
+  // 朗读标题按钮已移除，页面也不再引用它
+  assert.ok(!/speak-title/.test(page.text), '不应再有 speak-title 按钮');
+  assert.ok(!/朗读标题/.test(page.text), '不应再出现「朗读标题」文案');
+
+  // 两栏对照的 DOM 由客户端脚本重建（服务端 HTML 里只有原始块），
+  // 这里验证「构建产物已包含行带结构与对应样式」，真实渲染由浏览器测试覆盖。
+  const assets = [...page.text.matchAll(/\/assets\/[^"]+\.(js|css)/g)].map((m) => m[0]);
+  assert.ok(assets.length > 0, '页面应引用构建产物');
+  const bodies = await Promise.all(assets.map((a) => fetch(BASE + a).then((r) => r.text())));
+  const all = bodies.join('\n');
+  assert.match(all, /rc-row/, '前端脚本应产出 .rc-row 行带结构');
+  assert.match(all, /rc-cell/, '样式里应有 .rc-cell');
+});
+
+test('安全：普通用户访问管理接口被拒，未登录访问管理页跳登录', async () => {
+  const cookie = await register(uniq());
+  const list = await req('/api/admin/accounts', { cookie });
+  assert.equal(list.status, 403, '普通用户不应看到账号列表');
+  const create = await req('/api/admin/accounts', { method: 'POST', cookie, body: { username: uniq(), password: 'secret123' } });
+  assert.equal(create.status, 403);
+  const page = await req('/admin', { cookie, origin: null });
+  assert.equal(page.status, 302, '普通用户访问 /admin 应被弹回首页');
+  const anon = await req('/admin', { origin: null });
+  assert.equal(anon.status, 302);
+  assert.match(anon.res.headers.get('location'), /^\/login/);
+});
+
+test('安全：带路径穿越的文章 id 不会读到别处文件', async () => {
+  const cookie = await register(uniq());
+  const evil = await req(`/read/${encodeURIComponent('../../users.json')}`, { cookie, origin: null });
+  assert.equal(evil.status, 302, '非法 id 应跳回列表而不是 200');
+  const evilApi = await req(`/api/articles?id=${encodeURIComponent('..%2F..%2Fusers.json')}`, { method: 'DELETE', cookie });
+  assert.equal(evilApi.status, 404);
+});
+
+test('安全：未登录不能写生词本，跨站写请求被拒', async () => {
+  const anon = await req('/api/vocabulary', { method: 'PUT', body: { version: 2, groups: [], entries: [] } });
+  assert.equal(anon.status, 401);
+  const cookie = await register(uniq());
+  const cross = await req('/api/vocabulary', {
+    method: 'PUT',
+    cookie,
+    origin: 'http://evil.example',
+    body: { version: 2, groups: [], entries: [] },
+  });
+  assert.equal(cross.status, 403);
+});
+
+test('导入：超过 1MB 的附件被拒绝，空内容被拒绝', async () => {
+  const cookie = await register(uniq());
+  const empty = await req('/api/articles', { method: 'POST', cookie, body: { title: '空', text: '   ' } });
+  assert.equal(empty.status, 400);
+  const huge = await req('/api/articles', { method: 'POST', cookie, body: { title: '大', text: 'x '.repeat(600000) } });
+  assert.equal(huge.status, 413);
+});
+
 test('CSRF：同源 DELETE 放行，跨站写请求 403', async () => {
   const cookie = await register(uniq());
   const created = await req('/api/articles', { method: 'POST', cookie, body: { title: 'CSRF', text: 'hello world again' } });

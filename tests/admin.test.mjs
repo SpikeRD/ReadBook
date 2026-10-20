@@ -10,6 +10,8 @@ const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'readbook-admin-'));
 process.env.DATA_DIR = tmp;
 process.env.ADMIN_USERNAME = 'boss';
 process.env.ADMIN_PASSWORD = 'boss-pass-1';
+// 这些用例要精确控制 ADMIN_* 与 DATA_DIR，禁止 src/lib/load-env 再按项目根目录的 .env 回填
+process.env.DSH_TEST_NO_ENV = '1';
 
 const auth = await import('../src/lib/auth.ts');
 
@@ -100,4 +102,87 @@ test('自动生成的密码满足长度要求且随机', () => {
   assert.notEqual(a, b);
   assert.equal(auth.validatePassword(a).ok, true);
   assert.ok(!/[0O1lI]/.test(a), '避免易混淆字符');
+});
+
+test('并发首次登录只会落一条管理员记录（回归：曾因请求并发产生重复 admin）', async () => {
+  const fresh = await fs.mkdtemp(path.join(os.tmpdir(), 'readbook-admin-race-'));
+  process.env.DATA_DIR = fresh;
+  const racer = await import('../src/lib/auth.ts?race=1');
+  try {
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => racer.authenticate('boss', 'new-boss-pass').then(() => i))
+    );
+    assert.equal(results.length, 8, '所有并发登录都应完成');
+    const list = await racer.listUsers();
+    const admins = list.filter((u) => u.role === 'admin');
+    assert.equal(admins.length, 1, `管理员记录应只有 1 条，实际 ${admins.length} 条：${admins.map((a) => a.id).join(',')}`);
+  } finally {
+    await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
+    process.env.DATA_DIR = tmp;
+  }
+});
+
+test('并发注册同一用户名只会成功一次（回归：曾因读-改-写竞争产生重复账号）', async () => {
+  const fresh = await fs.mkdtemp(path.join(os.tmpdir(), 'readbook-reg-race-'));
+  process.env.DATA_DIR = fresh;
+  const racer = await import('../src/lib/auth.ts?regrace=1');
+  try {
+    const outcomes = await Promise.all(Array.from({ length: 6 }, () => racer.registerUser('dupe', 'pass12345')));
+    assert.equal(outcomes.filter((r) => r.ok).length, 1, '同名并发注册只应有 1 次成功');
+    const dupes = (await racer.listUsers()).filter((u) => u.username === 'dupe');
+    assert.equal(dupes.length, 1, `数据表里应只有 1 条 dupe，实际 ${dupes.length} 条`);
+  } finally {
+    await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
+    process.env.DATA_DIR = tmp;
+  }
+});
+
+test('未配置管理员凭据时，第一个注册者成为站长（避免无管理员死局）', async () => {
+  const fresh = await fs.mkdtemp(path.join(os.tmpdir(), 'readbook-bootstrap-'));
+  const savedName = process.env.ADMIN_USERNAME;
+  const savedPass = process.env.ADMIN_PASSWORD;
+  process.env.DATA_DIR = fresh;
+  process.env.ADMIN_USERNAME = '';
+  process.env.ADMIN_PASSWORD = '';
+  const boot = await import('../src/lib/auth.ts?bootstrap=1');
+  try {
+    const first = await boot.registerUser('owner', 'pass12345');
+    assert.equal(first.ok, true);
+    assert.equal(first.user.role, 'admin', '第一个注册者应成为站长');
+    const second = await boot.registerUser('friend', 'pass12345');
+    assert.equal(second.user.role, 'user', '后续注册者仍是普通用户');
+  } finally {
+    process.env.DATA_DIR = tmp;
+    process.env.ADMIN_USERNAME = savedName;
+    process.env.ADMIN_PASSWORD = savedPass;
+    await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('历史遗留的重复管理员记录可被清理（只保留最早一条）', async () => {
+  const fresh = await fs.mkdtemp(path.join(os.tmpdir(), 'readbook-dedupe-'));
+  process.env.DATA_DIR = fresh;
+  const mod = await import('../src/lib/auth.ts?dedupe=1');
+  try {
+    // 构造三条同名管理员（模拟缺陷 B 留下的数据）
+    await mod.authenticate('boss', 'new-boss-pass');
+    const file = path.join(fresh, 'users.json');
+    const list = JSON.parse(await fs.readFile(file, 'utf8'));
+    const base = list[0];
+    for (let i = 0; i < 2; i++) {
+      list.push({ ...base, id: `dup${i}0000000`, createdAt: `2020-01-0${i + 1}T00:00:00.000Z` });
+    }
+    await fs.writeFile(file, JSON.stringify(list), 'utf8');
+
+    const fixed = await mod.dedupeAdminRecords();
+    assert.equal(fixed, 2, `应清理 2 条重复记录，实际 ${fixed}`);
+    const after = JSON.parse(await fs.readFile(file, 'utf8'));
+    const admins = after.filter((u) => u.role === 'admin');
+    assert.equal(admins.length, 1);
+    // 幂等：再跑一次什么都不做
+    assert.equal(await mod.dedupeAdminRecords(), 0);
+  } finally {
+    process.env.DATA_DIR = tmp;
+    await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
+  }
 });

@@ -2,11 +2,16 @@ node_modules/
 dist/
 .astro/
 .env
+.deploy.env
 data/articles/
 data/translations/
 data/index.json
 data/dict.db
 data/dict.db-journal
 data/dict.db-wal
+data/users/
+data/users.json
+data/legacy/
+data/ecdict.csv
 *.log
 .DS_Store

@@ -178,7 +178,7 @@ export async function askText(
   defaultValue = '',
   message = '',
   placeholder = '',
-  options: { secret?: boolean; allowEmpty?: boolean } = {}
+  options: { secret?: boolean; allowEmpty?: boolean; requiredMessage?: string } = {}
 ): Promise<string | null> {
   const r = await showDialog({
     title,
@@ -187,7 +187,7 @@ export async function askText(
     message,
     placeholder,
     secret: options.secret,
-    requiredMessage: options.allowEmpty ? '' : '名称不能为空',
+    requiredMessage: options.allowEmpty ? '' : options.requiredMessage || '名称不能为空',
   });
   if (!r.ok) return null;
   const v = r.value.trim();

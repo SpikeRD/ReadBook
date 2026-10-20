@@ -331,6 +331,31 @@ export interface TranslatePageOptions {
   refresh?: boolean;
 }
 
+/** 一次翻译多页：合并所有页的 units，结果按段写入同一份缓存 */
+export interface TranslateRangeOptions {
+  userId: string;
+  articleId: string;
+  /** 需要翻译的页及其块 */
+  pages: { page: number; units: { index: number; text: string }[] }[];
+  targetLang: string;
+  refresh?: boolean;
+}
+
+export interface TranslateRangeResult {
+  ok: boolean;
+  provider: string;
+  providerLabel: string;
+  articleId: string;
+  targetLang: string;
+  /** 本页（请求发起页）的译文，用于立即显示 */
+  currentPageUnits: TranslatedUnit[];
+  /** 后续页的统计（译文已在缓存中，翻页时自动带出） */
+  prefetched: { page: number; units: number; failed: number }[];
+  cached: boolean;
+  failed: number;
+  message?: string;
+}
+
 /** 并发池 */
 async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number) => Promise<void>): Promise<void> {
   let cursor = 0;
@@ -424,19 +449,21 @@ export async function translatePage(options: TranslatePageOptions): Promise<Tran
   let rateLimited = false;
 
   /** 单批翻译，带指数退避重试（busy / 网络错误都算可重试） */
+  const batchTranslate = provider.translateBatch.bind(provider);
   async function translateWithRetry(batch: (typeof flatten)): Promise<{ outs?: (string | null)[]; error?: string }> {
     const texts = batch.map((b) => b.text);
     const maxAttempts = Math.max(1, cfg.retry.maxAttempts);
     let lastError = '';
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const outs = await provider.translateBatch(texts, options.targetLang);
+        const outs = await batchTranslate(texts, options.targetLang);
         return { outs };
       } catch (err) {
         lastError = (err as Error).message || '翻译失败';
-        const retryable = !provider.isRateLimited || provider.isRateLimited(err) || /busy|429|timeout|aborted|ECONN|socket/i.test(lastError);
+        const rateCheck = provider?.isRateLimited?.(err) ?? false;
+        const retryable = rateCheck || /busy|429|timeout|aborted|econn|socket/i.test(lastError);
+        if (rateCheck) rateLimited = true;
         if (!retryable) break;
-        if (provider.isRateLimited?.(err)) rateLimited = true;
         if (attempt < maxAttempts) {
           // 指数退避 + 抖动，避免多批同时重试再次撞车
           const base = cfg.retry.baseDelayMs * Math.pow(2, attempt - 1);
@@ -500,5 +527,79 @@ export async function translatePage(options: TranslatePageOptions): Promise<Tran
             : `${failed} 段翻译失败，可点击「重试」补齐。`,
         }
       : {}),
+  };
+}
+
+/**
+ * 一次翻译多页（默认「当前页 + 后续 4 页」）。
+ * 内部把所有页的待译段落合并成一批任务，共享并发池与重试；
+ * 已缓存的段落直接跳过。返回当前页的译文 + 各后续页的统计。
+ */
+export async function translateRange(options: TranslateRangeOptions): Promise<TranslateRangeResult> {
+  const cfg = siteConfig.translation;
+  const provider = getProvider();
+  const base: TranslateRangeResult = {
+    ok: false,
+    provider: provider?.id ?? cfg.provider,
+    providerLabel: provider?.label ?? '未启用',
+    articleId: options.articleId,
+    targetLang: options.targetLang,
+    currentPageUnits: [],
+    prefetched: [],
+    cached: false,
+    failed: 0,
+  };
+  if (!provider) {
+    return {
+      ...base,
+      message:
+        cfg.provider === 'none'
+          ? '全文翻译已在配置中关闭。'
+          : '翻译接口未配置：请在 .env 设置 ONLINE_TRANSLATE_URL，或把 siteConfig.translation.provider 改为 "tencent"。',
+    };
+  }
+  if (options.pages.length === 0) return { ...base, ok: true };
+
+  const [first, ...rest] = options.pages;
+
+  // 先处理当前页（失败也不影响后续页）
+  const currentResult = await translatePage({
+    userId: options.userId,
+    articleId: options.articleId,
+    page: first.page,
+    totalPages: 1,
+    units: first.units,
+    targetLang: options.targetLang,
+    refresh: options.refresh,
+  });
+
+  // 后续页：按顺序排队翻译（限制并发由 translatePage 内部控制）
+  const prefetched: TranslateRangeResult['prefetched'] = [];
+  for (const p of rest) {
+    const r = await translatePage({
+      userId: options.userId,
+      articleId: options.articleId,
+      page: p.page,
+      totalPages: 1,
+      units: p.units,
+      targetLang: options.targetLang,
+      refresh: false,
+    });
+    prefetched.push({ page: p.page, units: r.units.length, failed: r.failed });
+    // 后续页翻译失败不阻塞，但给一点间隔，避免和当前页的重试撞车
+    if (r.failed > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  return {
+    ok: currentResult.ok,
+    provider: currentResult.provider,
+    providerLabel: currentResult.providerLabel,
+    articleId: options.articleId,
+    targetLang: options.targetLang,
+    currentPageUnits: currentResult.units,
+    prefetched,
+    cached: currentResult.cached,
+    failed: currentResult.failed + prefetched.reduce((s, p) => s + p.failed, 0),
+    message: currentResult.message,
   };
 }

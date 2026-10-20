@@ -1396,6 +1396,32 @@ html[data-theme='night'] .group-tab-tag .group-tab-name::before {
   opacity: 0.45;
 }
 
+/* 跳页：输入页码 + 跳转按钮 */
+.pager-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.pager-jump-input {
+  width: 64px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.pager-jump-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 @media (max-width: 560px) {
   .pager {
     gap: 8px;
@@ -1492,68 +1518,84 @@ html[data-theme='night'] .group-tab-tag .group-tab-name::before {
   padding: 18px 16px;
 }
 
+/*
+ * 两栏对照的对齐方式：
+ *   每段 = 一个 .rc-row，里面是「英文格 .rc-en + 中文格 .rc-zh」两个格子，
+ *   由网格把同一段的两个格子放进同一行；格子等高、内容首尾两端分布，
+ *   于是每段英文的首行与中文的首行在同一条水平线上，末行也齐平。
+ *   段与段之间的空隙放在格子内边距里，「边界」也在同一水平线上。
+ */
 .reader-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
+  column-gap: 24px;
 }
 
-.reader-columns .col {
+.reader-columns .rc-row {
+  display: contents;
+}
+
+.reader-columns .rc-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   min-width: 0;
+  padding-bottom: 1.1em;
 }
 
-.reader-columns .col-en {
+.reader-columns .rc-cell > * {
+  margin: 0;
+}
+
+.reader-columns .rc-en {
   font-size: 0.92em;
   line-height: 1.75;
 }
 
-.reader-columns .col-zh {
+.reader-columns .rc-zh {
   font-family: var(--font);
-  font-size: 0.86em;
-  line-height: 1.8;
+  font-size: 0.92em;
+  line-height: 1.75;
   color: var(--zh-text);
   border-left: 1px solid var(--border);
   padding-left: 20px;
+  overflow-wrap: anywhere;
 }
 
-.reader-columns .col-zh .zh-block {
-  display: block !important;
+/* 译文本体：去掉上下对照模式下的竖线与负边距，字号与行高跟英文列一致，才能逐行对齐 */
+.reader-columns .rc-zh .zh-block {
   border-left: none;
-  padding-left: 0;
-  margin: 0 0 1em;
+  padding: 0;
+  margin: 0;
   font-family: var(--font);
 }
 
-.reader-columns .col-zh .zh-heading {
+/* 标题：两列用同样的字体、字号与行高，英文标题与中文标题才会落在同一条水平线上 */
+.reader-columns .rc-en h2,
+.reader-columns .rc-zh .zh-heading {
+  font-family: var(--font);
+  font-size: 1.15em;
   font-weight: 700;
   color: var(--zh-heading);
 }
 
-.reader-columns .col-block {
-  margin: 0 0 1em;
-}
-
-.reader-columns h2 {
-  font-size: 1.15em;
-}
-
-.reader-columns .col-en h2,
-.reader-columns .col-zh .zh-heading {
-  margin-top: 0.2em;
-}
-
-/* 手机端：两栏改为上下堆叠，避免挤压 */
+/* 手机端：每段内部改为「英文在上、中文在下」，仍然段内成组，不会左右挤压 */
 @media (max-width: 760px) {
   .reader-columns {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    column-gap: 0;
   }
 
-  .reader-columns .col-zh {
+  .reader-columns .rc-cell {
+    padding-bottom: 0;
+  }
+
+  .reader-columns .rc-en {
+    padding-bottom: 6px;
+  }
+
+  .reader-columns .rc-zh {
     border-left: none;
-    padding-left: 0;
+    padding: 6px 0 1.1em;
     border-top: 1px dashed var(--border);
-    padding-top: 10px;
   }
 }

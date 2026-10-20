@@ -47,6 +47,12 @@ if (totalPages <= 9) {
   pageLinks.push(totalPages);
 }
 
+// 所有页的原文（服务端直出），供前端做预翻译：{ page: N, units: [...] }
+const allPageUnits = pages.map((p, i) => ({
+  page: i + 1,
+  units: p.units.map((u) => ({ index: u.index, text: u.text })),
+}));
+
 const readerMeta = {
   articleId: article.id,
   articleTitle: article.title,
@@ -58,6 +64,11 @@ const readerMeta = {
   hasCachedTranslation: hasCachedOnPage,
   /** 本页原文（服务端直出，避免前端从 DOM 取文本时把 HTML 实体当成正文） */
   pageUnits: page.units.map((u) => ({ index: u.index, text: u.text })),
+  /** 全部页原文（预翻译用） */
+  allPageUnits,
+  /** 预翻译配置 */
+  prefetchPages: siteConfig.translation.prefetchPages,
+  prefetchTriggerPage: siteConfig.translation.prefetchTriggerPage,
   translation: {
     enabled: siteConfig.translation.provider !== 'none',
     provider: siteConfig.translation.provider,
@@ -133,6 +144,23 @@ const pageWordCount = page.units.reduce(
         ) : (
           <button class="btn btn-sm" type="button" disabled>下一页 ›</button>
         )}
+        {/* 跳页：原生 GET 表单，回车或点「跳转」都直接跳 ?page=N，不依赖 JS */}
+        <form class="pager-jump" method="get" action={`/read/${article.id}`}>
+          <label class="small muted" for="page-jump">跳至</label>
+          <input
+            class="pager-jump-input"
+            id="page-jump"
+            name="page"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max={totalPages}
+            value={currentPage}
+            aria-label={`跳转页码，范围 1 到 ${totalPages}`}
+          />
+          <span class="small muted">/ {totalPages} 页</span>
+          <button class="btn btn-sm" type="submit">跳转</button>
+        </form>
       </nav>
     )
   }
@@ -181,7 +209,6 @@ const pageWordCount = page.units.reduce(
   }
 
   <div class="row" style="margin-top:16px; justify-content:center">
-    <button class="btn" id="speak-title" type="button">🔊 朗读标题</button>
     <a class="btn" href="/">← 返回列表</a>
   </div>
 
@@ -190,7 +217,6 @@ const pageWordCount = page.units.reduce(
   <script id="reader-meta" type="application/json" set:html={JSON.stringify(readerMeta)} />
   <script>
     import '../../scripts/client/reader';
-    import { speak } from '../../scripts/client/speech';
     import { initTranslate } from '../../scripts/client/translate';
     import { askText, confirmDelete, notify } from '../../scripts/client/dialog';
     import { initKeyboardPaging } from '../../scripts/client/reader/pager';
@@ -198,9 +224,6 @@ const pageWordCount = page.units.reduce(
     initTranslate();
 
     const title = document.getElementById('article-title');
-    document.getElementById('speak-title')?.addEventListener('click', () => {
-      if (title) speak(title.textContent || '', 'en-US');
-    });
 
     // 改标题 / 删除文章
     const articleId = document.querySelector<HTMLScriptElement>('#reader-meta')?.textContent
@@ -209,7 +232,9 @@ const pageWordCount = page.units.reduce(
 
     document.getElementById('rename-btn')?.addEventListener('click', async () => {
       const current = title?.textContent || '';
-      const next = await askText('修改文章标题', current, '', '输入新的标题');
+      const next = await askText('修改文章标题', current, '', '输入新的标题', {
+        requiredMessage: '标题不能为空',
+      });
       if (!next || next === current) return;
       const res = await fetch(`/api/articles?id=${encodeURIComponent(articleId)}`, {
         method: 'PATCH',

@@ -86,6 +86,17 @@ const pageWordCount = page.units.reduce(
 ---
 
 <BaseLayout current="/" title={`${article.title}${totalPages > 1 ? ` · 第 ${currentPage}/${totalPages} 页` : ''}`}>
+  {/*
+    遮挡译文：首帧前恢复上次选择。已缓存的译文是服务端直出的，
+    不在这里先打标记，刷新时会先看到译文再被遮住（闪一下）。
+  */}
+  <script is:inline>
+    try {
+      if (localStorage.getItem('readbook.reader.translateMask.v1') === '1') {
+        document.documentElement.dataset.zhMask = '1';
+      }
+    } catch (e) {}
+  </script>
   <div class="reader-toolbar">
     <a class="btn btn-sm" href="/">← 返回列表</a>
     <a class="btn btn-sm" href="/vocabulary">生词本</a>
@@ -102,6 +113,7 @@ const pageWordCount = page.units.reduce(
       <button type="button" class="seg-btn" data-mode="zh" aria-pressed="false">只看译文</button>
       <button type="button" class="seg-btn" data-mode="en" aria-pressed="false">只看原文</button>
     </div>
+    <button class="btn btn-sm btn-ghost" id="translate-mask" type="button" aria-pressed="false" hidden title="把译文模糊掉，点某一段才显示该段">遮挡译文</button>
     <button class="btn btn-sm btn-ghost" id="translate-retry" type="button" hidden title="重新请求本页翻译并覆盖缓存">重新翻译</button>
     <span id="translate-status" class="muted" style="flex:1 1 100%; min-width:0"></span>
   </div>

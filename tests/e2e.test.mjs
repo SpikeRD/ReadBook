@@ -392,6 +392,25 @@ test('阅读页：不再提供「朗读标题」，两栏脚本与样式已按�
   assert.match(all, /rc-cell/, '样式里应有 .rc-cell');
 });
 
+test('阅读页：译文遮挡按钮存在，且构建产物包含遮挡样式与首帧恢复脚本', async () => {
+  const cookie = await register(uniq());
+  const created = await req('/api/articles', { method: 'POST', cookie, body: { title: '遮挡测试', text: 'First paragraph.\n\nSecond paragraph here.' } });
+  const id = created.data.article.id;
+  const page = await req(`/read/${id}`, { cookie, origin: null });
+
+  // 按钮默认关闭（aria-pressed=false），且只出现在翻译工具栏里
+  assert.match(page.text, /id="translate-mask"[^>]*aria-pressed="false"/);
+  assert.match(page.text, /遮挡译文/);
+  // 首帧脚本要能在译文渲染前读到上次选择
+  assert.match(page.text, /readbook\.reader\.translateMask\.v1/);
+
+  const assets = [...page.text.matchAll(/\/assets\/[^"]+\.(js|css)/g)].map((m) => m[0]);
+  const bodies = await Promise.all(assets.map((a) => fetch(BASE + a).then((r) => r.text())));
+  const all = bodies.join('\n');
+  assert.match(all, /data-zh-mask/, '样式应包含遮挡选择器');
+  assert.match(all, /zh-revealed/, '样式与脚本应包含「已显示」态');
+});
+
 test('安全：普通用户访问管理接口被拒，未登录访问管理页跳登录', async () => {
   const cookie = await register(uniq());
   const list = await req('/api/admin/accounts', { cookie });

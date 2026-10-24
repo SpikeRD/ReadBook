@@ -41,6 +41,7 @@ interface ReaderMetaForTranslate {
 type Mode = 'columns' | 'both' | 'zh' | 'en';
 const MODE_KEY = 'readbook.reader.translateMode.v2';
 const ACTIVE_KEY = 'readbook.reader.translateActive';
+const MASK_KEY = 'readbook.reader.translateMask.v1';
 const VALID_MODES: Mode[] = ['columns', 'both', 'zh', 'en'];
 
 function byId<T extends HTMLElement>(id: string): T | null {
@@ -57,11 +58,13 @@ export function initTranslate(): void {
   const bar = byId<HTMLElement>('translate-bar');
   const statusBox = byId<HTMLElement>('translate-status');
   const retryBtn = byId<HTMLButtonElement>('translate-retry');
+  const maskBtn = byId<HTMLButtonElement>('translate-mask');
   const reader = byId<HTMLElement>('reader');
   if (!btn || !bar || !statusBox || !reader) return;
   const statusEl: HTMLElement = statusBox;
 
   btn.hidden = false;
+  if (maskBtn) maskBtn.hidden = false;
   const blocks = Array.from(reader.querySelectorAll<HTMLElement>('.reader-block'));
   const originalBlocks = [...blocks];
   let busy = false;
@@ -82,6 +85,31 @@ export function initTranslate(): void {
   const stored = localStorage.getItem(MODE_KEY) as Mode | null;
   let mode: Mode = stored && VALID_MODES.includes(stored) ? stored : 'columns';
   let translated = translatedPages.size > 0;
+
+  // ── 遮挡译文 ──
+  // 开关按浏览器记住（localStorage），翻页、刷新都保持；首帧由页面内联脚本先打上 data-zh-mask。
+  // 打开后译文只是模糊、不改变高度，两栏对照的行带对齐不受影响；点某一段才显示该段。
+  let maskOn = localStorage.getItem(MASK_KEY) === '1';
+  /** 本次浏览里已点开显示的段落（刷新后重新遮挡，正好符合「先看原文再看译文」） */
+  const revealed = new Set<number>();
+
+  function blockIndexOf(el: HTMLElement): number {
+    const holder = el.closest<HTMLElement>('[data-block]');
+    return Number(holder?.dataset.block ?? '-1');
+  }
+
+  function applyMask(): void {
+    document.documentElement.dataset.zhMask = maskOn ? '1' : '0';
+    if (maskBtn) {
+      maskBtn.setAttribute('aria-pressed', String(maskOn));
+      maskBtn.textContent = maskOn ? '取消遮挡' : '遮挡译文';
+      maskBtn.title = maskOn ? '已遮挡：点译文段落即可显示该段' : '把译文模糊掉，点某一段才显示该段';
+    }
+    // 两栏模式的译文是克隆出来的新节点，必须按段落索引重新挂状态
+    for (const zh of reader!.querySelectorAll<HTMLElement>('.zh-block')) {
+      zh.classList.toggle('zh-revealed', !maskOn || revealed.has(blockIndexOf(zh)));
+    }
+  }
 
   function setStatus(text: string, tone: 'muted' | 'ok' | 'error' = 'muted'): void {
     statusEl.textContent = text;
@@ -136,6 +164,7 @@ export function initTranslate(): void {
         const row = document.createElement('div');
         row.className = 'rc-row';
         row.dataset.type = block.dataset.type || 'paragraph';
+        row.dataset.block = block.dataset.block || '';
 
         const enCell = document.createElement('div');
         enCell.className = 'rc-cell rc-en';
@@ -157,6 +186,7 @@ export function initTranslate(): void {
       article.replaceChildren(wrap);
       article.classList.add('mode-columns');
       article.classList.remove('mode-both');
+      applyMask();
       return;
     }
 
@@ -175,6 +205,7 @@ export function initTranslate(): void {
         zh.classList.toggle('is-empty', !hasText);
       }
     }
+    applyMask();
   }
 
   /** 组装某页的翻译请求块 */
@@ -303,6 +334,29 @@ export function initTranslate(): void {
     applyMode(target.dataset.mode as Mode);
   });
 
+  maskBtn?.addEventListener('click', () => {
+    maskOn = !maskOn;
+    revealed.clear();
+    localStorage.setItem(MASK_KEY, maskOn ? '1' : '0');
+    applyMask();
+    setStatus(
+      maskOn ? '译文已遮挡：点任一段中文即显示该段，再点「取消遮挡」全部显示' : '已取消遮挡，译文全部显示',
+      'muted'
+    );
+  });
+
+  // 遮挡时点译文段落 → 只显示这一段。
+  // 事件委托挂在 #reader 上；译文块里没有 .word 节点，不影响 reader.ts 的点词委托。
+  reader!.addEventListener('click', (event) => {
+    if (!maskOn) return;
+    const zh = (event.target as HTMLElement).closest<HTMLElement>('.zh-block');
+    if (!zh || zh.classList.contains('zh-revealed')) return;
+    if (!(zh.textContent || '').trim()) return;
+    event.preventDefault();
+    revealed.add(blockIndexOf(zh));
+    zh.classList.add('zh-revealed');
+  });
+
   // 首屏：
   //   1. 应用用户上次选择的显示方式（不写入，等用户操作再持久化）
   //   2. 本页已有缓存译文 → 直接展示
@@ -311,7 +365,12 @@ export function initTranslate(): void {
   applyMode(mode, false);
   if (translated) {
     bar.hidden = false;
-    setStatus('本页译文已从账号中载入（翻页/刷新不会丢）', 'ok');
+    setStatus(
+      maskOn
+        ? '本页译文已从账号中载入，当前为遮挡状态：点任一段中文即显示该段'
+        : '本页译文已从账号中载入（翻页/刷新不会丢）',
+      'ok'
+    );
     if (retryBtn) retryBtn.hidden = false;
   }
   if (sessionStorage.getItem(ACTIVE_KEY)) {

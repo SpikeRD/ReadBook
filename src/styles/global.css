@@ -1506,6 +1506,27 @@ html[data-theme='night'] .group-tab-tag .group-tab-name::before {
   border-left-color: #f3cccc;
 }
 
+/*
+ * 遮挡译文：只模糊、不隐藏。
+ * 隐藏会让段落高度变化，两栏对照的行带对齐会立刻错位，所以用 blur。
+ * 首帧由阅读页内联脚本给 <html> 打 data-zh-mask，避免刷新时译文先闪现一帧。
+ */
+html[data-zh-mask='1'] .zh-block:not(.zh-revealed):not(.zh-error) {
+  filter: blur(5px);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html[data-zh-mask='1'] .zh-block:not(.zh-revealed):not(.zh-error):hover {
+  filter: blur(3.5px);
+}
+
+/* 点开后有一个很短的「显影」过渡，让人知道是哪一段被显示了 */
+html[data-zh-mask='1'] .zh-block.zh-revealed {
+  transition: filter 0.12s ease;
+}
+
 /* 上下对照：译文字号略小、行距紧凑 */
 .reader.mode-both .zh-block {
   font-size: 0.86em;

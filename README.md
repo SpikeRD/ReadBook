@@ -3,7 +3,7 @@
 以「英文阅读器」为核心的个人网站：注册 / 登录后导入英文文章 → 点词查中文释义并发音 → 生词自动进生词本。所有数据（文章、生词本、译文缓存）按账号隔离保存在服务器，换设备登录同一账号即可继续。技术栈为 Astro + 轻量 Node 后端，单进程跑在一台小服务器上即可。
 
 > 以下命令均在 **PowerShell**（Windows 10 开始菜单搜 "PowerShell"）中、于项目根目录执行。
-> 需要 Node.js **22.13 或更高版本**（内置 `node:sqlite`；本次验证使用 Node 24.20.0）。
+> 需要 Node.js **22.13 或更高版本**（内置 `node:sqlite`；本次验证使用 Node 22.22.2）。版本要求也写在 `.nvmrc` 与 `package.json` 的 `engines` 里，用 nvm / fnm 的人 `nvm use` 即可。
 
 ---
 
@@ -11,10 +11,16 @@
 
 ```powershell
 cd E:\Desktop\DeepSeekHarness\ReadBook
-npm install
+npm ci
 ```
 
+`npm ci` 严格按 `package-lock.json` 安装，版本与构建机、Docker 镜像完全一致；`npm install` 会按 `^` 范围升级次版本，适合你要主动升级依赖时用。
+
 安装完成后直接运行 `npm run dev` 即可，其余初始化会自动完成（生成约 3 万词的本地词库 `data/dict.db`、生成 `.env`），无需手工准备数据。
+
+> **依赖管理就是 npm + `package-lock.json`，不引入 uv。**
+> 本项目没有 Python 依赖：`scripts/` 下三个脚本都是 Node ESM（`prepare.mjs` / `build-dict.mjs` / `fetch-ecdict.mjs`），测试也是 `node --test` 跑的 `.mjs`。
+> `uv` 是 Python 的包管理器，接进来没有可管理的东西，只会多一层没人用的壳。Docker 构建同样用 `npm ci`（见 `Dockerfile` 的 deps / build 阶段），两端一致。
 
 第一次打开网站会跳到登录页：点「创建第一个账号（站长）」注册，第一个账号会接管本机已有的示例文章；之后每个新注册的账号都会自动获得一篇欢迎示例文章。
 
@@ -30,7 +36,7 @@ npm run dev
 
 | 命令 | 作用 |
 |---|---|
-| `npm install` | 安装依赖（一次即可） |
+| `npm ci` | 按 `package-lock.json` 精确安装依赖（一次即可；只有要主动升级依赖时才用 `npm install`） |
 | `npm run dev` | 开发模式，带热更新，监听 `http://127.0.0.1:4321` |
 | `npm run build` | 构建生产产物到 `dist/` |
 | `npm run start` | 以生产模式启动（先自动 `prepare`，再跑 `dist/server/entry.mjs`），同样监听 `http://127.0.0.1:4321` |
@@ -79,7 +85,7 @@ npm run start
   - 新建账号（密码留空自动生成，创建后弹窗显示一次）
   - 重置普通用户密码（自动生成新密码并显示，对方旧会话失效）
   - 删除账号（连同该用户的文章、生词本、翻译缓存一起删除）
-  - 修改管理员密码后**无需重启进程**，下一次请求即生效，旧密码立即失效。本机改项目根 `.env`；Docker 部署要设环境变量后 `docker compose up -d`（compose **不会**自动读取 `.env`）。管理员密码不能在页面里改（页面会提示改配置）。
+  - 修改管理员密码后**无需重启进程**，下一次请求即生效，旧密码立即失效。本机改项目根 `.env`；Docker 部署改 `.env` 或设环境变量后执行 `docker compose up -d`（compose 会读 `.env` 做变量替换，但值只在创建容器时注入，`restart` 不生效）。管理员密码不能在页面里改（页面会提示改配置）。
   - 若 `ADMIN_PASSWORD` 仍是默认的 `admin`，`/admin` 页顶部会显示红色告警提醒你修改。
   - 兜底：若用户表里还没有管理员账号，系统会在第一次登录 / 访问时按配置自动创建；启动时若发现历史遗留的重名管理员记录，会自动改名为 `<用户名>_dupN` 并降为普通用户。
   - 若把 `ADMIN_USERNAME` 设为空，站点不启用配置的管理员，此时**第一个注册的人自动成为站长**，避免出现「永远进不了 /admin」的死局。
@@ -112,7 +118,20 @@ npm run start
 
 ## 四、Docker 部署
 
-Dockerfile 是多阶段构建：`deps`（生产依赖）→ `build`（生成 `dist/`）→ `dict`（生成约 3 万词的 `data/dict.db`）→ `runtime`（Node 22 slim + 非 root 用户 + 健康检查）。
+Dockerfile 是多阶段构建：`deps`（生产依赖）→ `build`（生成 `dist/`）→ `dict`（生成约 3 万词的 `data/dict.db`）→ `runtime`（Node 22 slim + 非 root 用户 + 健康检查）。两个装依赖的阶段都用 `npm ci`，与本地安装方式一致，版本由 `package-lock.json` 锁定；`.dockerignore` 已排除 `node_modules`、`dist`、`.env`、`data/users` 等，构建上下文不会带上本机数据与密钥。
+
+### 前置条件（先确认这三件事）
+
+```powershell
+docker version          # 要能看到 Server 段；只有 Client 段说明引擎没起来
+docker compose version  # 需要 v2（命令是 docker compose，不是老的 docker-compose）
+```
+
+1. **Docker Desktop 的引擎必须在运行**（Windows 走 WSL2 后端）。只装了 CLI、引擎没起来时，`docker compose up` 会报
+   `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`。
+   先手动打开 Docker Desktop，等状态变成 "Engine running" 再执行下面的命令。
+2. **本机最好有 `data/ecdict.csv`（约 63MB）**：构建时优先用它生成词库，避免在构建阶段联网下载；没有则 `Dockerfile` 会尝试联网拉 ECDICT，仍失败才退回内置 460 词小词表。
+3. **宿主机的 4321 端口要空着**：容器映射的就是 4321，先停掉本机的 `npm run start` / `npm run dev`。
 
 ### 方式一：docker compose（推荐）
 
@@ -125,6 +144,13 @@ $env:ADMIN_PASSWORD = "你的管理员密码"
 
 docker compose up -d --build
 docker compose ps
+```
+
+`docker compose ps` 的 STATUS 应为 **`Up ... (healthy)`**。首次启动有 15s 的 `start_period`，这期间显示 `health: starting` 属正常。探针打的是免登录的 `/api/health`，也可以手动验：
+
+```powershell
+curl http://127.0.0.1:4321/api/health
+# {"ok":true,"time":"...","node":"v22.x","dict":{"ready":true,"words":30001,"source":"ecdict"}}
 ```
 
 浏览器打开 **http://localhost:4321**，用上面的管理员账号登录。停止 / 更新：
@@ -141,7 +167,7 @@ docker compose down -v                  # 停止并删除数据卷（会清空�
 
 > **环境变量只在创建容器时生效**：改了 `ADMIN_PASSWORD` / `SESSION_SECRET` 后，
 > `docker compose up -d` 会重建容器并应用新值；已经在运行的容器执行 `restart` **不会**更新环境变量。
-> 另外，compose **不会自动读取项目根的 `.env`**——本机运行时才读 `.env`，Docker 部署必须用环境变量或写进 `docker-compose.yml`。
+> 另外，compose v2 **会自动读取项目根的 `.env`** 做 `${VAR}` 替换，所以本机 `.env` 里的 `ADMIN_PASSWORD` 对容器同样生效；`.env` 本身不会进镜像（`.dockerignore` 已排除），容器内靠 `environment:` 注入。优先级：**shell 环境变量 > `.env` > compose 里的默认值**。
 > 部署后请打开 `/admin`：如果看到红色「管理员密码仍为默认的 admin」告警，说明还没设强密码。
 
 完整部署、备份、HTTPS、故障排查与上线检查清单见 **[部署手册.md](部署手册.md)**。
@@ -168,7 +194,7 @@ docker ps
 ### 部署注意
 
 - **环境变量优先于 `.env`**：用 `-e` / compose `environment` 设置的 `ADMIN_PASSWORD`、`SESSION_SECRET` 会覆盖配置文件；镜像内不包含 `.env`。
-- 容器以非 root 用户 `app` 运行，实测常驻内存约 **49MB**（`docker stats`），compose 里限制了 `mem_limit: 1g`，适合 2 核 2G 小服务器。
+- 容器以非 root 用户 `app` 运行，实测空闲常驻内存约 **35MB**（`docker stats`，读长文时约 50MB），compose 里限制了 `mem_limit: 1g`，适合 2 核 2G 小服务器。镜像体积约 **799MB**（`readbook:latest`，2026-10-24 实测）。
 - 镜像内自带健康检查（`/api/health`），`docker ps` 里状态应显示 `healthy`。
 - 换机器迁移：把 `docker volume` 里的数据复制过去，或用 `docker run --rm -v readbook_readbook-data:/data -v ${PWD}:/backup alpine tar czf /backup/readbook-data.tgz -C /data .` 备份。
 
@@ -220,6 +246,8 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-10-24 | 完成 Docker 镜像构建与容器部署验证：`docker compose build` 2m46s 通过（词库 30001 条，用本地 `data/ecdict.csv` 生成）、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`、数据卷沿用旧数据（admin + 老人与海）；文档补镜像体积 799MB、空闲内存 35MB 与 `prepare` 在容器内跳过 TS 检查的说明 | 要求「整个项目部署到 Docker」，需留下可复现的实测结果，并把容器与宿主机行为差异写清 |
+| 2026-10-24 | 依赖安装统一为 `npm ci`（新增 `.nvmrc`=22），并在安装段写清「不引入 uv」的原因；Docker 章节补前置条件（引擎必须运行、`data/ecdict.csv`、4321 端口）、健康检查验证方式与 `npm ci` 说明；纠正两处「compose 不会自动读取 `.env`」的错误表述 | 要求「依赖管理改成 uv」经核实不成立：本项目零 Python 依赖，uv 无处可用；真正需要的是把 Node 侧安装做成可复现，并把 Docker 部署的前置条件写进文档。`.env` 那条是实测发现文档与 compose v2 实际行为相反 |
 | 2026-10-24 | 阅读页译文区新增「遮挡译文」开关：中文默认模糊、点某一段才显示该段、可一键取消；开关存 `localStorage`（键 `readbook.reader.translateMask.v1`），翻页与刷新都保持，首帧由页面内联脚本给 `<html>` 打 `data-zh-mask` 以免闪现；两栏模式重建 DOM 后按段落索引重挂遮挡状态；测试 60 → 61 条 | 需求变更：希望先读原文、需要时再看译文，避免一进页面就被中文带着走 |
 | 2026-10-20 | 阅读页：①两栏对照改为「每段一个行带」的网格结构，英文与中文段落首行严格同线、段边界对齐，两列统一字号/行高/字体，手机端改为段内英文在上中文在下；②顶部页码区新增「跳至 __ / 总页数」输入框（原生 GET 表单，无 JS 也能用）；③删除底部「🔊 朗读标题」按钮及其点击监听（单词发音、侧栏发音不受影响） | 需求变更：对照阅读时中英文段落首尾不在同一水平线、中文显得挤；页数多时只能逐页点；朗读标题按钮无响应 |
 | 2026-10-20 | 修复 4 个缺陷：并发首次登录写出多条管理员记录（加用户表并发锁 + 启动自动清理重复项）；`/admin` 的「默认密码」安全告警从不显示（`env.ts` 新增 `adminPasswordConfigured`）；配置空 `ADMIN_USERNAME` 会创建空用户名管理员（同时改为「没有管理员时首个注册者成为站长」）；`scripts/prepare.mjs` 在 Windows 上无法加载模块（改用 `pathToFileURL`） | 全面测试中发现，其中重复管理员与缺失的安全告警会直接影响线上数据与安全性 |

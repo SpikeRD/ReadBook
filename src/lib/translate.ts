@@ -1,10 +1,14 @@
 // 全文翻译：按「页」请求翻译，并把结果增量保存到磁盘。
 //
-// 服务商（siteConfig.translation.provider）：
-//   'tencent'  —— 腾讯交互翻译（默认）。国内直连、免密钥、支持批量；
-//   'mymemory' —— MyMemory 免费接口（单次 500 字符、有每日额度，长文容易 429）
-//   'custom'   —— .env 的 ONLINE_TRANSLATE_URL
-//   'none'     —— 关闭
+// 服务商：分「站点默认」与「账号自选」两层。
+//   站点默认（siteConfig.translation.provider）：
+//     'tencent'  —— 腾讯交互翻译（默认）。国内直连、免密钥、支持批量；
+//     'mymemory' —— MyMemory 免费接口（单次 500 字符、有每日额度，长文容易 429）
+//     'custom'   —— .env 的 ONLINE_TRANSLATE_URL
+//     'none'     —— 关闭
+//   账号自选（data/users/<id>/settings.json 的 translation）：
+//     provider='custom' 且填了 apiUrl 时优先使用，可带个人 API Key。
+//   未设置 / 设回 'default' 时完全走站点默认，行为与以前一致。
 //
 // 缓存：data/users/<userId>/translations/<articleId>.json
 //   { version, provider, targetLang, pages: { "<page>": { key, units: [{ index, hash, target }] } } }
@@ -17,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { readEnv } from './env.ts';
 import { userDir } from './paths.ts';
 import { siteConfig } from '../config/site.ts';
+import type { TranslationSettings } from './translate-settings.ts';
 
 export interface TranslationProvider {
   id: string;
@@ -149,18 +154,30 @@ function myMemoryProvider(): TranslationProvider {
   };
 }
 
-function customProvider(url: string): TranslationProvider {
+function customProvider(url: string, apiKey = ''): TranslationProvider {
+  const key = apiKey.trim();
+  // 带个人密钥时缓存 id 需与「站点默认的自定义接口」区分开，避免两者共用一份译文缓存
+  const id = key ? 'custom-key' : 'custom';
   return {
-    id: 'custom',
-    label: '自定义接口',
+    id,
+    label: key ? '自定义接口（个人密钥）' : '自定义接口',
     maxChars: 1500,
     batchSize: 1,
     async translateBatch(texts, target) {
       const out: (string | null)[] = [];
       for (const text of texts) {
         try {
-          const targetUrl = url.replace('{q}', encodeURIComponent(text)).replace('{to}', encodeURIComponent(target));
-          const res = await fetch(targetUrl, { signal: AbortSignal.timeout(siteConfig.translation.timeoutMs) });
+          const targetUrl = url
+            .replace('{q}', encodeURIComponent(text))
+            .replace('{to}', encodeURIComponent(target))
+            .replace('{key}', encodeURIComponent(key));
+          // 地址里没写 {key} 时，用最常见的 Bearer 头带过去
+          const headers: Record<string, string> = {};
+          if (key && !url.includes('{key}')) headers.authorization = `Bearer ${key}`;
+          const res = await fetch(targetUrl, {
+            headers,
+            signal: AbortSignal.timeout(siteConfig.translation.timeoutMs),
+          });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = (await res.json()) as Record<string, unknown>;
           const nested = (data.data && typeof data.data === 'object' ? data.data : {}) as Record<string, unknown>;
@@ -175,9 +192,19 @@ function customProvider(url: string): TranslationProvider {
   };
 }
 
-export function getProvider(): TranslationProvider | null {
+/**
+ * 取当前生效的翻译服务商。
+ * settings 传入账号自选的设置；不传（或 provider='default'）时与以前完全一致。
+ */
+export function getProvider(settings?: TranslationSettings | null): TranslationProvider | null {
   const env = readEnv();
   const cfg = siteConfig.translation;
+
+  // 账号自选：仅在站点允许时生效，且必须真的填了接口地址
+  if (cfg.userConfigurable && settings?.provider === 'custom' && settings.apiUrl.trim()) {
+    return customProvider(settings.apiUrl.trim(), settings.apiKey);
+  }
+
   if (cfg.provider === 'none') return null;
   if (cfg.provider === 'custom') return env.translateUrl ? customProvider(env.translateUrl) : null;
   if (cfg.provider === 'mymemory') return myMemoryProvider();
@@ -329,6 +356,8 @@ export interface TranslatePageOptions {
   targetLang: string;
   /** 忽略缓存，强制重译本页 */
   refresh?: boolean;
+  /** 账号自选的翻译设置；不传则走站点默认 */
+  settings?: TranslationSettings | null;
 }
 
 /** 一次翻译多页：合并所有页的 units，结果按段写入同一份缓存 */
@@ -339,6 +368,8 @@ export interface TranslateRangeOptions {
   pages: { page: number; units: { index: number; text: string }[] }[];
   targetLang: string;
   refresh?: boolean;
+  /** 账号自选的翻译设置；不传则走站点默认 */
+  settings?: TranslationSettings | null;
 }
 
 export interface TranslateRangeResult {
@@ -369,12 +400,22 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, i: number
   );
 }
 
+/** 没有可用服务商时的提示（区分「站点关掉了」和「个人接口没填全」） */
+function noProviderMessage(settings?: TranslationSettings | null): string {
+  const cfg = siteConfig.translation;
+  if (settings?.provider === 'custom') {
+    return '你选择了「个人接口」但还没有填写接口地址，请到「翻译设置」页补全。';
+  }
+  if (cfg.provider === 'none') return '全文翻译已在配置中关闭。';
+  return '翻译接口未配置：请在 .env 设置 ONLINE_TRANSLATE_URL，或把 siteConfig.translation.provider 改为 "tencent"。';
+}
+
 export async function translatePage(options: TranslatePageOptions): Promise<TranslatePageResult> {
-  const provider = getProvider();
+  const provider = getProvider(options.settings);
   const cfg = siteConfig.translation;
   const base: TranslatePageResult = {
     ok: false,
-    provider: provider?.id ?? cfg.provider,
+    provider: provider?.id ?? (options.settings?.provider === 'custom' ? 'custom' : cfg.provider),
     providerLabel: provider?.label ?? '未启用',
     articleId: options.articleId,
     page: options.page,
@@ -385,13 +426,7 @@ export async function translatePage(options: TranslatePageOptions): Promise<Tran
     failed: 0,
   };
   if (!provider) {
-    return {
-      ...base,
-      message:
-        cfg.provider === 'none'
-          ? '全文翻译已在配置中关闭。'
-          : '翻译接口未配置：请在 .env 设置 ONLINE_TRANSLATE_URL，或把 siteConfig.translation.provider 改为 "tencent"。',
-    };
+    return { ...base, message: noProviderMessage(options.settings) };
   }
 
   const file = await readCache(options.userId, options.articleId, provider.id, options.targetLang);
@@ -537,10 +572,10 @@ export async function translatePage(options: TranslatePageOptions): Promise<Tran
  */
 export async function translateRange(options: TranslateRangeOptions): Promise<TranslateRangeResult> {
   const cfg = siteConfig.translation;
-  const provider = getProvider();
+  const provider = getProvider(options.settings);
   const base: TranslateRangeResult = {
     ok: false,
-    provider: provider?.id ?? cfg.provider,
+    provider: provider?.id ?? (options.settings?.provider === 'custom' ? 'custom' : cfg.provider),
     providerLabel: provider?.label ?? '未启用',
     articleId: options.articleId,
     targetLang: options.targetLang,
@@ -550,13 +585,7 @@ export async function translateRange(options: TranslateRangeOptions): Promise<Tr
     failed: 0,
   };
   if (!provider) {
-    return {
-      ...base,
-      message:
-        cfg.provider === 'none'
-          ? '全文翻译已在配置中关闭。'
-          : '翻译接口未配置：请在 .env 设置 ONLINE_TRANSLATE_URL，或把 siteConfig.translation.provider 改为 "tencent"。',
-    };
+    return { ...base, message: noProviderMessage(options.settings) };
   }
   if (options.pages.length === 0) return { ...base, ok: true };
 
@@ -571,6 +600,7 @@ export async function translateRange(options: TranslateRangeOptions): Promise<Tr
     units: first.units,
     targetLang: options.targetLang,
     refresh: options.refresh,
+    settings: options.settings,
   });
 
   // 后续页：按顺序排队翻译（限制并发由 translatePage 内部控制）
@@ -584,6 +614,7 @@ export async function translateRange(options: TranslateRangeOptions): Promise<Tr
       units: p.units,
       targetLang: options.targetLang,
       refresh: false,
+      settings: options.settings,
     });
     prefetched.push({ page: p.page, units: r.units.length, failed: r.failed });
     // 后续页翻译失败不阻塞，但给一点间隔，避免和当前页的重试撞车

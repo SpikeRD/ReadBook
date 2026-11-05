@@ -15,6 +15,7 @@ import type { APIRoute } from 'astro';
 import '../../lib/load-env';
 import { getArticle } from '../../lib/articles';
 import { translateRange, getProvider, translatePage } from '../../lib/translate';
+import { getUserTranslationSettings } from '../../lib/translate-settings';
 import { requireUser } from '../../lib/auth-guard';
 import { siteConfig } from '../../config/site';
 
@@ -49,15 +50,19 @@ export const POST: APIRoute = async (ctx) => {
   if (!article) return json({ ok: false, error: '文章不存在' }, 404);
 
   const cfg = siteConfig.translation;
-  if (!getProvider()) {
+  // 账号自选的翻译设置（未设置时等价于站点默认）
+  const settings = await getUserTranslationSettings(auth.user.id);
+  if (!getProvider(settings)) {
     return json(
       {
         ok: false,
         error:
-          cfg.provider === 'none'
-            ? '全文翻译已在配置中关闭。'
-            : '翻译接口未配置：请在 .env 设置 ONLINE_TRANSLATE_URL，或把 siteConfig.translation.provider 改为 "tencent"。',
-        provider: cfg.provider,
+          settings.provider === 'custom'
+            ? '你选择了「个人接口」但还没有填写接口地址，请到「翻译设置」页补全。'
+            : cfg.provider === 'none'
+              ? '全文翻译已在配置中关闭。'
+              : '翻译接口未配置：请在 .env 设置 ONLINE_TRANSLATE_URL，或把 siteConfig.translation.provider 改为 "tencent"。',
+        provider: settings.provider === 'custom' ? 'custom' : cfg.provider,
       },
       503
     );
@@ -85,10 +90,11 @@ export const POST: APIRoute = async (ctx) => {
     pages: [{ page, units: currentPageUnits }, ...prefetch.map((p) => ({ page: p.page, units: p.units }))],
     targetLang: cfg.targetLang,
     refresh: body.refresh === true,
+    settings,
   });
 
   if (!result.ok && result.currentPageUnits.length === 0) {
-    return json({ ok: false, error: result.message || '翻译失败', provider: cfg.provider }, 502);
+    return json({ ok: false, error: result.message || '翻译失败', provider: result.provider }, 502);
   }
   return json({
     ok: result.ok,
@@ -113,6 +119,7 @@ export const GET: APIRoute = async (ctx) => {
   const article = await getArticle(auth.user.id, id);
   if (!article) return json({ ok: false, error: '文章不存在' }, 404);
   const cfg = siteConfig.translation;
+  const settings = await getUserTranslationSettings(auth.user.id);
   const result = await translatePage({
     userId: auth.user.id,
     articleId: article.id,
@@ -121,6 +128,7 @@ export const GET: APIRoute = async (ctx) => {
     units: article.blocks.map((b, index) => ({ index, text: b.text })),
     targetLang: cfg.targetLang,
     refresh: ctx.url.searchParams.get('refresh') === '1',
+    settings,
   });
   return json(result);
 };

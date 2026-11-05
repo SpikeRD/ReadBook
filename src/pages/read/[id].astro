@@ -4,7 +4,8 @@ import { siteConfig } from '../../config/site';
 import { getArticle, formatBytes } from '../../lib/articles';
 import { tokenizeParagraph } from '../../lib/reader-html';
 import { paginate } from '../../lib/paginate';
-import { getCachedTranslations } from '../../lib/translate';
+import { getCachedTranslations, getProvider } from '../../lib/translate';
+import { getUserTranslationSettings } from '../../lib/translate-settings';
 
 const { id } = Astro.params;
 const userId = Astro.locals.user!.id;
@@ -22,10 +23,19 @@ const currentPage = Math.min(Math.max(1, Number.isFinite(requested) ? Math.floor
 const page = pages[currentPage - 1];
 const pageHref = (n: number) => `/read/${article.id}${n > 1 ? `?page=${n}` : ''}`;
 
+// 当前账号实际生效的翻译服务商（账号自选优先，否则站点默认）
+const translationSettings = await getUserTranslationSettings(userId);
+const activeProvider = getProvider(translationSettings);
+
 // 已缓存的译文在服务端直接渲染，刷新 / 翻页后译文不会消失
+// 只渲染「当前服务商」翻译的缓存：换了服务商后旧译文不再顶替新结果
 const cachedTranslation = await getCachedTranslations(userId, article.id);
 const cachedMap = new Map<number, string>();
-if (cachedTranslation && cachedTranslation.targetLang === siteConfig.translation.targetLang) {
+if (
+  cachedTranslation &&
+  cachedTranslation.targetLang === siteConfig.translation.targetLang &&
+  cachedTranslation.provider === (activeProvider?.id ?? '')
+) {
   for (const unit of page.units) {
     const hit = cachedTranslation.units[String(unit.index)];
     if (hit?.target) cachedMap.set(unit.index, hit.target);
@@ -70,8 +80,9 @@ const readerMeta = {
   prefetchPages: siteConfig.translation.prefetchPages,
   prefetchTriggerPage: siteConfig.translation.prefetchTriggerPage,
   translation: {
-    enabled: siteConfig.translation.provider !== 'none',
-    provider: siteConfig.translation.provider,
+    enabled: !!activeProvider,
+    provider: activeProvider?.id ?? siteConfig.translation.provider,
+    providerLabel: activeProvider?.label ?? '',
     targetLang: siteConfig.translation.targetLang,
     label: siteConfig.translation.label,
     disclaimer: siteConfig.translation.disclaimer,

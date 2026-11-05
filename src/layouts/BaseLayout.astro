@@ -85,6 +85,7 @@ const here = strip(Astro.url.pathname);
                       {Astro.locals.user.role === 'admin' ? '管理员账号' : '数据已同步到账号'}
                     </span>
                   </div>
+                  <a class="account-item" href="/settings">翻译设置</a>
                   {
                     Astro.locals.user.role === 'admin' ? (
                       <a class="account-item" href="/admin">账号管理</a>

@@ -35,7 +35,7 @@ interface ReaderMetaForTranslate {
   allPageUnits?: { page: number; units: PageUnit[] }[];
   prefetchPages?: number;
   prefetchTriggerPage?: number;
-  translation: { enabled: boolean; label: string; disclaimer: string };
+  translation: { enabled: boolean; label: string; disclaimer: string; providerLabel?: string };
 }
 
 type Mode = 'columns' | 'both' | 'zh' | 'en';
@@ -365,10 +365,11 @@ export function initTranslate(): void {
   applyMode(mode, false);
   if (translated) {
     bar.hidden = false;
+    const engine = meta.translation.providerLabel ? `${meta.translation.providerLabel} · ` : '';
     setStatus(
       maskOn
-        ? '本页译文已从账号中载入，当前为遮挡状态：点任一段中文即显示该段'
-        : '本页译文已从账号中载入（翻页/刷新不会丢）',
+        ? `${engine}本页译文已从账号中载入，当前为遮挡状态：点任一段中文即显示该段`
+        : `${engine}本页译文已从账号中载入（翻页/刷新不会丢）`,
       'ok'
     );
     if (retryBtn) retryBtn.hidden = false;

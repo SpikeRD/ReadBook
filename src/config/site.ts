@@ -121,6 +121,11 @@ export const siteConfig = {
    */
   translation: {
     provider: 'tencent' as 'tencent' | 'mymemory' | 'custom' | 'none',
+    /**
+     * 是否允许每个账号在「翻译设置」页自选服务商（默认免费腾讯，可换成自己的 API Key）。
+     * 关掉后设置页只读，所有人都跟随上面的 provider。
+     */
+    userConfigurable: true,
     /** 目标语言 */
     targetLang: 'zh-CN',
     /** 源语言 */

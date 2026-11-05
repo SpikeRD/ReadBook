@@ -71,6 +71,7 @@ npm run start
   data/users/<用户id>/index.json        该用户的文章索引
   data/users/<用户id>/vocabulary.json   该用户的生词本（含分组）
   data/users/<用户id>/translations/     该用户的全文翻译缓存
+  data/users/<用户id>/settings.json     该用户的翻译设置（仅自己改过才存在）
   data/dict.db                          公共词库（约 3 万词，所有用户共用）
   ```
 - 换设备：在新设备打开站点、用同一用户名密码登录即可，文章与生词本自动同步，无需导入导出。
@@ -110,7 +111,9 @@ npm run start
   - **自动重试**：翻译服务偶发的 `busy` / 429 / 网络错误会自动重试（最多 4 次、指数退避），对用户透明；重试后仍失败的段落不会被缓存，下次会补齐。
   - 译文按「段」增量保存在账号里（`data/users/<用户id>/translations/`），**翻页、刷新、重新进入都不会丢**，服务端直接把已缓存的译文渲染进页面。纯数字、页码等无需翻译的段落自动跳过。
   - 相关配置（`site.ts` 的 `translation`）：`prefetchPages`（一次翻译几页，默认 5）、`prefetchTriggerPage`（读到第几页触发续批，默认 3）、`concurrency`（并发批次数，默认 2）、`retry`（重试策略）。
-  - 换服务：`.env` 设置 `ONLINE_TRANSLATE_URL`（含 `{q}`、`{to}` 占位），再把 `site.ts` 的 `translation.provider` 改为 `'custom'`。
+  - 换服务（全站默认）：`.env` 设置 `ONLINE_TRANSLATE_URL`（含 `{q}`、`{to}` 占位），再把 `site.ts` 的 `translation.provider` 改为 `'custom'`。
+  - **每个账号可以自己换引擎**：顶栏头像菜单 →「翻译设置」（或直接访问 `/settings`）。默认「站点默认（免费腾讯翻译）」，可改成「个人接口」并填自己的接口地址与 API Key。设置只对当前账号生效，存在 `data/users/<用户id>/settings.json`，换设备登录即生效；密钥只以掩码（如 `••••3456`）回传，不会明文显示。切换引擎后，旧引擎翻译过的段落会重新翻译一遍（译文缓存按服务商区分）。站长可在 `site.ts` 把 `translation.userConfigurable` 设为 `false`，关掉这个入口并让所有人跟随站点默认。
+  - 个人接口的地址用 `{q}` 表示原文、`{to}` 表示目标语言、`{key}` 表示密钥；地址里没写 `{key}` 时，密钥会放在 `Authorization: Bearer` 请求头里。返回体含 `translation` / `translatedText` / `data.translation` 任一字段即可。
 - **安全**：口令式共享访问已移除；所有写请求做同源校验（CSRF），未登录访问页面跳登录页、访问接口返回 401，普通用户访问管理接口返回 403，文章 id 经过路径安全校验。反向代理上 HTTPS 时把 `.env` 的 `COOKIE_SECURE` 改为 `1`（Docker 用环境变量），并把 `SESSION_SECRET` 换成随机长字符串。容器以非 root 用户 `app` 运行。
 - **文档索引**：完整部署、备份、HTTPS、故障排查见 **[部署手册.md](部署手册.md)**；最近一轮全面测试的结论与数据见 **[测试报告.md](测试报告.md)**。
 
@@ -208,7 +211,8 @@ src/lib/                服务端
   session.ts            签名会话 token（带用户 id 与版本）
   articles.ts           按用户存储文章、配额、旧数据认领
   vocab-server.ts       按用户存储生词本（分组模型、导入去重）
-  translate.ts          分段翻译 + 按用户缓存
+  translate.ts          分段翻译 + 按用户缓存（站点默认 / 账号自选两种来源）
+  translate-settings.ts 账号级翻译设置读写（data/users/<id>/settings.json）
   paginate.ts           长文分页（按块切页、超长段落按句拆分）
   seed.ts               新用户欢迎文章
   load-env.ts           读取项目根 .env（测试可用 DSH_TEST_NO_ENV=1 跳过）
@@ -225,8 +229,8 @@ src/scripts/client/     浏览器端
   vocab-store.ts        生词本数据层（服务端同步 + 旧数据迁移）
   dialog.ts             应用内弹窗（askText 支持自定义空值提示）
   theme / translate / speech / account-menu
-src/pages/              login / register / admin / index / import / read/[id] / vocabulary / about
-src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), translate, lookup, health
+src/pages/              login / register / admin / index / import / read/[id] / vocabulary / settings / about
+src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), translate, settings, lookup, health
 ```
 
 ### 后续 TODO
@@ -246,6 +250,8 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 用新代码重建镜像并重新部署：`docker compose up -d --build` 1m11s 通过（词库 30001 条，用本地 `data/ecdict.csv` 离线生成）、容器 `Up (healthy)`、`/api/health` 正常；容器内实测 `/settings` 页面与 `/api/settings` 读写可用，设置落到命名卷 `/app/data/users/<id>/settings.json`；命名卷旧数据（admin + 老人与海）完好；镜像 799MB、空闲内存 33MB | 翻译设置改动需要上线到容器环境，并确认新接口在非 root 用户 + 命名卷下读写正常 |
+| 2026-11-05 | 全文翻译服务商改为「页面可设置」：新增 `/settings` 页与 `/api/settings` 接口，每个账号可在「站点默认（免费腾讯）」与「个人接口 + 自己的 API Key」之间切换，设置存 `data/users/<id>/settings.json`（文件不存在即跟随站点默认，老账号无需迁移）；`getProvider()` 支持传入账号设置，`translate.ts` / `api/translate.ts` / 阅读页 / 前端状态栏同步；顶栏头像菜单加「翻译设置」入口；`site.ts` 新增 `translation.userConfigurable` 开关；密钥只以掩码回传。无新增依赖，测试仍 61 条全通过 | 需求变更：翻译 API 想做成页面可配置，默认用免费的，也能填个人 Key，不必改代码或重启 |
 | 2026-10-24 | 完成 Docker 镜像构建与容器部署验证：`docker compose build` 2m46s 通过（词库 30001 条，用本地 `data/ecdict.csv` 生成）、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`、数据卷沿用旧数据（admin + 老人与海）；文档补镜像体积 799MB、空闲内存 35MB 与 `prepare` 在容器内跳过 TS 检查的说明 | 要求「整个项目部署到 Docker」，需留下可复现的实测结果，并把容器与宿主机行为差异写清 |
 | 2026-10-24 | 依赖安装统一为 `npm ci`（新增 `.nvmrc`=22），并在安装段写清「不引入 uv」的原因；Docker 章节补前置条件（引擎必须运行、`data/ecdict.csv`、4321 端口）、健康检查验证方式与 `npm ci` 说明；纠正两处「compose 不会自动读取 `.env`」的错误表述 | 要求「依赖管理改成 uv」经核实不成立：本项目零 Python 依赖，uv 无处可用；真正需要的是把 Node 侧安装做成可复现，并把 Docker 部署的前置条件写进文档。`.env` 那条是实测发现文档与 compose v2 实际行为相反 |
 | 2026-10-24 | 阅读页译文区新增「遮挡译文」开关：中文默认模糊、点某一段才显示该段、可一键取消；开关存 `localStorage`（键 `readbook.reader.translateMask.v1`），翻页与刷新都保持，首帧由页面内联脚本给 `<html>` 打 `data-zh-mask` 以免闪现；两栏模式重建 DOM 后按段落索引重挂遮挡状态；测试 60 → 61 条 | 需求变更：希望先读原文、需要时再看译文，避免一进页面就被中文带着走 |

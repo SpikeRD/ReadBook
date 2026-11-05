@@ -1,0 +1,239 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+import { getUserTranslationSettings, maskApiKey } from '../lib/translate-settings';
+import { getProvider } from '../lib/translate';
+
+const user = Astro.locals.user!;
+const settings = await getUserTranslationSettings(user.id);
+const siteProvider = getProvider(null);
+const configurable = siteConfig.translation.userConfigurable;
+const keyHint = maskApiKey(settings.apiKey);
+const siteLabel = siteProvider?.label ?? '未启用';
+---
+
+<BaseLayout current="/settings" title="翻译设置">
+  <h1 class="page-title">翻译设置</h1>
+  <p class="page-sub" style="margin-bottom:14px">
+    这里的设置只对<strong>你自己的账号</strong>生效。默认使用站点提供的免费翻译；想用自己的 API Key，选「个人接口」并填地址即可。
+  </p>
+
+  {
+    !configurable && (
+      <div class="alert alert-error" style="margin-bottom:14px">
+        本站已关闭「每个账号自选翻译服务」，所有人统一使用 {siteLabel}。如需开启，请站长把{' '}
+        <code>src/config/site.ts</code> 里 <code>translation.userConfigurable</code> 改为 <code>true</code>。
+      </div>
+    )
+  }
+
+  <div class="card">
+    <form id="tr-form" novalidate>      <div class="tr-options">
+        <label class="tr-option" data-value="default">
+          <input type="radio" name="provider" value="default" checked={settings.provider === 'default'} disabled={!configurable} />
+          <span class="tr-option-body">
+            <strong>站点默认（免费）</strong>
+            <span class="hint">当前为 {siteLabel}：免密钥、国内直连，适合大多数人。</span>
+          </span>
+        </label>
+
+        <label class="tr-option" data-value="custom">
+          <input type="radio" name="provider" value="custom" checked={settings.provider === 'custom'} disabled={!configurable} />
+          <span class="tr-option-body">
+            <strong>个人接口（自己的 API Key）</strong>
+            <span class="hint">填一个返回 JSON 的翻译接口，用你自己的额度，不计入站点。</span>
+          </span>
+        </label>
+      </div>
+
+      <div id="custom-fields" hidden={settings.provider !== 'custom'}>
+        <label class="field" for="api-url" style="margin-top:4px">接口地址</label>
+        <input
+          id="api-url"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          value={settings.apiUrl}
+          placeholder="https://api.example.com/translate?q={q}&to={to}&key={key}"
+        />
+        <p class="hint" style="margin-top:6px">
+          <code>{'{q}'}</code> 会替换成原文、<code>{'{to}'}</code> 替换成目标语言（如 <code>zh-CN</code>）、
+          <code>{'{key}'}</code> 替换成下面的密钥。地址里没写 <code>{'{key}'}</code> 时，密钥会放在
+          <code>Authorization: Bearer</code> 请求头里。返回体里含有 <code>translation</code> /
+          <code>translatedText</code> / <code>data.translation</code> 任一字段即可。
+        </p>
+
+        <label class="field" for="api-key" style="margin-top:14px">API Key</label>
+        <input
+          id="api-key"
+          type="password"
+          autocomplete="off"
+          placeholder={keyHint ? `已保存 ${keyHint}，留空表示不修改` : '没有密钥可留空'}
+        />
+        <div class="row" style="gap:10px; margin-top:6px; align-items:center">
+          <p class="hint" style="flex:1 1 auto; min-width:0" id="key-state">
+            {keyHint ? `已保存密钥 ${keyHint}` : '尚未保存密钥'}
+          </p>
+          <button class="btn btn-sm btn-ghost" type="button" id="clear-key" hidden={!keyHint}>清除已保存的密钥</button>
+        </div>
+      </div>
+
+      <div class="row" style="gap:10px; margin-top:16px; align-items:center">
+        <button class="btn btn-primary" type="submit" id="save-btn" disabled={!configurable}>保存设置</button>
+        <a class="btn btn-sm" href="/">返回文章列表</a>
+      </div>
+
+      <div id="tr-msg" aria-live="polite" style="margin-top:12px"></div>
+    </form>
+  </div>
+
+  <details class="card">
+    <summary><strong>怎么填？</strong><span class="muted small">（点开看两个例子）</span></summary>
+    <ul class="sync-steps">
+      <li>
+        <strong>直接支持 GET + JSON 的接口</strong>：地址写成
+        <code>https://api.example.com/translate?q={'{q}'}&amp;to={'{to}'}&amp;key={'{key}'}</code>，
+        密钥填进下面的输入框即可。
+      </li>
+      <li>
+        <strong>用 Authorization 头的接口</strong>：地址只写
+        <code>https://api.example.com/translate?q={'{q}'}&amp;to={'{to}'}</code>，密钥会自动放进
+        <code>Authorization: Bearer &lt;你的密钥&gt;</code>。
+      </li>
+      <li>
+        保存后回到文章页点「全文翻译」即可验证。如果密钥不对，译文区会显示
+        <code>（本段翻译失败：HTTP 401）</code> 这类具体错误，按提示改地址或密钥即可。
+      </li>
+      <li>切换服务商后，旧服务商翻译过的段落会重新翻译一遍（译文缓存按服务商区分）。</li>
+    </ul>
+  </details>
+
+  <script is:inline>
+    (function () {
+      var form = document.getElementById('tr-form');
+      if (!form) return;
+      var fields = document.getElementById('custom-fields');
+      var urlInput = document.getElementById('api-url');
+      var keyInput = document.getElementById('api-key');
+      var clearBtn = document.getElementById('clear-key');
+      var keyState = document.getElementById('key-state');
+      var saveBtn = document.getElementById('save-btn');
+      var msg = document.getElementById('tr-msg');
+      var radios = form.querySelectorAll('input[name="provider"]');
+      /** 是否要求清空已保存的密钥 */
+      var clearKey = false;
+
+      function esc(s) {
+        return String(s).replace(/[&<>"]/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+        });
+      }
+      function show(kind, text) {
+        msg.innerHTML = '<div class="alert alert-' + (kind === 'ok' ? 'ok' : 'error') + '">' + esc(text) + '</div>';
+      }
+      function currentProvider() {
+        for (var i = 0; i < radios.length; i++) if (radios[i].checked) return radios[i].value;
+        return 'default';
+      }
+      function sync() {
+        var isCustom = currentProvider() === 'custom';
+        fields.hidden = !isCustom;
+        var opts = form.querySelectorAll('.tr-option');
+        for (var i = 0; i < opts.length; i++) {
+          opts[i].classList.toggle('is-active', opts[i].getAttribute('data-value') === currentProvider());
+        }
+      }
+
+      for (var i = 0; i < radios.length; i++) radios[i].addEventListener('change', sync);
+      sync();
+
+      clearBtn &&
+        clearBtn.addEventListener('click', function () {
+          clearKey = true;
+          keyInput.value = '';
+          keyInput.disabled = true;
+          keyState.textContent = '保存后会清除已保存的密钥';
+          clearBtn.hidden = true;
+        });
+
+      form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        msg.innerHTML = '';
+        var provider = currentProvider();
+        var payload = { provider: provider, apiUrl: urlInput.value.trim() };
+        // 未改动密钥时不传该字段（服务端沿用已保存的值）
+        if (clearKey) payload.apiKey = '';
+        else if (keyInput.value.trim()) payload.apiKey = keyInput.value.trim();
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = '保存中…';
+        try {
+          var res = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          var data = await res.json().catch(function () {
+            return {};
+          });
+          if (!res.ok || !data.ok) {
+            show('error', data.error || '保存失败（HTTP ' + res.status + '）');
+            return;
+          }
+          var t = data.translation || {};
+          keyInput.value = '';
+          keyInput.disabled = false;
+          clearKey = false;
+          keyState.textContent = t.hasKey ? '已保存密钥 ' + t.keyHint : '尚未保存密钥';
+          clearBtn.hidden = !t.hasKey;
+          keyInput.placeholder = t.hasKey ? '已保存 ' + t.keyHint + '，留空表示不修改' : '没有密钥可留空';
+          show('ok', provider === 'custom' ? '已保存。回到文章页点「全文翻译」即可验证。' : '已切回站点默认翻译。');
+        } catch {
+          show('error', '网络错误，请稍后再试。');
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = '保存设置';
+        }
+      });
+    })();
+  </script>
+
+  <style>
+    .tr-options {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .tr-option {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      background: var(--card);
+    }
+    .tr-option.is-active {
+      border-color: var(--accent);
+      background: var(--surface-soft);
+    }
+    .tr-option input {
+      width: auto;
+      margin-top: 3px;
+      flex: none;
+    }
+    .tr-option-body {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .tr-option-body strong {
+      font-size: 14px;
+    }
+    .tr-option-body .hint {
+      font-size: 13px;
+    }
+  </style>
+</BaseLayout>

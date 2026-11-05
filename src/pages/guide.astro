@@ -1,0 +1,64 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+
+const { title, intro, steps, sections, faq } = siteConfig.guide;
+---
+
+<BaseLayout current="/guide" title={title} description={intro}>
+  <h1 class="page-title">{title}</h1>
+  <p class="page-sub">{siteConfig.tagline}</p>
+
+  <section class="card">
+    <p style="margin:0">{intro}</p>
+  </section>
+
+  <section class="card">
+    <h2 style="font-size:16px">三步上手</h2>
+    <div class="stack">
+      {
+        steps.map((s) => (
+          <div class="row" style="align-items:flex-start; flex-wrap:nowrap">
+            <div class="step-num" aria-hidden="true">{s.n}</div>
+            <div style="min-width:0">
+              <strong>{s.t}</strong>
+              <div class="muted small">{s.d}</div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  {
+    sections.map((sec) => (
+      <section class="card">
+        <h2 style="font-size:16px">{sec.title}</h2>
+        <dl class="guide-list">
+          {sec.items.map((it) => (
+            <div class="guide-item">
+              <dt>{it.t}</dt>
+              <dd class="muted small">{it.d}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    ))
+  }
+
+  <section class="card">
+    <h2 style="font-size:16px">常见问题</h2>
+    <div class="stack">
+      {
+        faq.map((q) => (
+          <details class="faq-item">
+            <summary>{q.t}</summary>
+            <p class="muted small" style="margin:8px 0 0">
+              {q.d}
+            </p>
+          </details>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

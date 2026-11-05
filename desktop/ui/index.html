@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>ReadBook 启动器</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h1>ReadBook 启动器</h1>
+          <p class="sub">英文阅读站 · 本地服务</p>
+        </div>
+      </div>
+      <span class="badge" id="status-badge" data-status="stopped">已停止</span>
+    </header>
+
+    <main>
+      <section class="card">
+        <div class="card-head">
+          <h2>服务设置</h2>
+          <span class="hint">改动在下次启动时生效</span>
+        </div>
+
+        <div class="grid">
+          <label class="field">
+            <span class="label">端口号</span>
+            <input id="port" type="number" min="1" max="65535" step="1" placeholder="4321" />
+            <span class="hint">默认 4321；被占用时换一个（如 8080）</span>
+          </label>
+
+          <label class="field">
+            <span class="label">局域网访问</span>
+            <span class="switch-row">
+              <input id="lan" type="checkbox" />
+              <span class="hint" id="lan-hint">关闭时只有本机能访问（127.0.0.1）</span>
+            </span>
+          </label>
+
+          <div class="field span-2">
+            <span class="label">数据目录</span>
+            <div class="row">
+              <input id="dataDir" type="text" spellcheck="false" />
+              <button class="btn btn-sm" id="pick-dir" type="button">选择…</button>
+              <button class="btn btn-sm btn-ghost" id="open-dir" type="button">打开</button>
+            </div>
+            <span class="hint">文章、生词本、日记都存在这里，换目录等于换一套数据</span>
+          </div>
+
+          <label class="field">
+            <span class="label">管理员用户名</span>
+            <input id="adminUser" type="text" spellcheck="false" placeholder="admin" />
+          </label>
+
+          <label class="field">
+            <span class="label">管理员密码</span>
+            <input id="adminPassword" type="password" placeholder="admin" />
+            <span class="hint">首次运行用它登录；改这里即可改密码</span>
+          </label>
+        </div>
+
+        <label class="check">
+          <input id="openOnStart" type="checkbox" />
+          <span>启动服务后自动打开浏览器</span>
+        </label>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>控制</h2>
+        </div>
+        <div class="row actions">
+          <button class="btn btn-primary" id="start-btn" type="button">启动服务</button>
+          <button class="btn btn-danger" id="stop-btn" type="button" disabled>停止服务</button>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost" id="open-site" type="button" disabled>打开网站</button>
+          <button class="btn btn-ghost" id="copy-url" type="button" disabled>复制地址</button>
+        </div>
+        <p class="url-line">
+          <span class="muted">访问地址</span>
+          <code id="url">—</code>
+        </p>
+        <p class="hint" id="msg" role="status"></p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>运行日志</h2>
+          <span class="spacer"></span>
+          <button class="btn btn-sm btn-ghost" id="toggle-log" type="button">收起</button>
+        </div>
+        <pre class="log" id="log">（尚未启动）</pre>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

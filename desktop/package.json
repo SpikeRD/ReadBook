@@ -1,0 +1,51 @@
+{
+  "name": "readbook-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ReadBook 桌面启动器：设置端口后启动 / 关闭本地服务",
+  "author": "ReadBook",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "build:runtime:fast": "node scripts/build-runtime.mjs --skip-build",
+    "build:exe": "node scripts/build-runtime.mjs && electron-builder --win portable",
+    "build:exe:fast": "node scripts/build-runtime.mjs --skip-build && electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.readbook.desktop",
+    "productName": "ReadBook",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ui/**"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime",
+        "to": "runtime"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "ReadBook-${version}-portable.exe",
+      "unpackDirName": "ReadBook"
+    }
+  }
+}

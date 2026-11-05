@@ -736,26 +736,49 @@ textarea:focus {
   text-decoration: line-through;
 }
 
-/* ── 关于我 ── */
-.about-hero {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.avatar {
-  width: 72px;
-  height: 72px;
+/* ── 使用指南 ── */
+.step-num {
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--accent);
   display: grid;
   place-items: center;
-  font-size: 28px;
+  font-size: 14px;
   font-weight: 700;
   flex: none;
-  object-fit: cover;
+}
+
+.guide-list {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 14px;
+}
+
+.guide-item dt {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.guide-item dd {
+  margin: 2px 0 0;
+}
+
+.faq-item {
+  border-top: 1px solid var(--border);
+  padding: 10px 0 0;
+}
+
+.faq-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 /* ── 口令页 ── */
@@ -2029,7 +2052,7 @@ html[data-zh-mask='1'] .zh-block.zh-revealed {
   }
 
   .nav-links a {
-    padding: 6px 8px;
+    padding: 6px 6px;
     font-size: 13px;
   }
 }

@@ -100,7 +100,7 @@ npm run start
 - **数据隔离**：每个用户的文章、生词本、翻译缓存都存放在 `data/users/<用户id>/` 下，接口一律以当前登录用户为准，无法通过 URL 读取别人的文章。
 - **首次使用**：第一个注册的账号会自动接管本机原有数据；每个新账号会得到一篇欢迎示例文章。浏览器里旧版（localStorage）生词本会在首次登录后自动合并进账号，然后从浏览器删除。管理员账号会在首次登录时按配置自动创建。
 - **并发安全**：用户表的「读 → 改 → 写回」全部串行执行，多个请求同时首次登录或同名并发注册不会再产生重复记录。
-- **改内容只需改一个文件**：`src/config/site.ts`（站点名、导航、社交链接、关于我、容量限制、是否点词自动进生词本、账号规则、全文翻译服务商等）；配色主题在 `src/config/themes.ts`。
+- **改内容只需改一个文件**：`src/config/site.ts`（站点名、导航、使用指南文案、容量限制、是否点词自动进生词本、账号规则、全文翻译服务商等）；配色主题在 `src/config/themes.ts`。
 - **生词本按分组隔离**：每篇文章的生词只属于该文章；顶栏「生词本」可按分组标签切换。阅读页点词浮层里可以「加入本篇生词」，也可以新建自建分组（下拉/标签点击加入）；生词本页支持分组改名 / 删除 / 移动词条。导出 JSON 含分组结构，导入时可选合并或替换。
 - **中文阅读（与英文阅读分开）**：顶栏「中文阅读」→ `/zh`，只列中文文章；英文文章在首页 `/`，两边列表互不混入。导入时在「语言」里选「中文阅读」，文章会记下 `lang: "zh"`（存在同一份 `data/users/<用户id>/articles/*.json` 里，不新增目录，老文章没有该字段一律按英文处理，无需迁移）。
   - 中文阅读页是**纯阅读**：正文不渲染可点击单词，没有「全文翻译」工具栏，没有「本文生词」侧栏，也不会写入生词本；保留分页、翻页 / 跳页、键盘左右键、改标题、删除。
@@ -260,7 +260,7 @@ src/scripts/client/     浏览器端
   vocab-store.ts        生词本数据层（服务端同步 + 旧数据迁移）
   dialog.ts             应用内弹窗（askText 支持自定义空值提示）
   theme / translate / speech / account-menu
-src/pages/              login / register / admin / index（英文列表）/ zh（中文列表）/ diary（日记）/ import / read/[id] / vocabulary / settings / about
+src/pages/              login / register / admin / index（英文列表）/ zh（中文列表）/ diary（日记）/ import / read/[id] / vocabulary / settings / guide（使用指南）
 src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), translate, settings, notes, diary, lookup, health
 ```
 
@@ -271,16 +271,45 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 3. 文章分页 / 搜索：文章数量变大后给首页加搜索与分页。
 4. 阅读进度与「已掌握」的复习提醒（需求明确本轮不做遗忘曲线）。
 5. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见部署手册。
-6. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`，头像缺失回退为首字母。
+6. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`。
 7. 翻译质量增强：MyMemory 为免费众包记忆库，长文可出现机翻腔；可接入 DeepL / 百度 / 腾讯正式 API。
 8. 账号管理增强：目前没有邀请码、管理员账号不能被删除、也没有「停用账号」状态，可按需补。
 9. 词库扩充：前 3 万词已覆盖日常阅读，专业术语可按需提高 `--limit`。
 10. 两栏对照的「逐行对齐」：当前保证每段首行与段边界对齐，若英文段行数多于中文会自然留白；如需要逐行严格对应，要改译文行数策略。
 
-### 变更记录
+## 五、桌面版（Windows 单文件 exe）
+
+不想装 Docker 时，可以打一个单文件 exe：双击出启动器窗口，设好端口 / 数据目录 / 管理员密码，点「启动服务」即可，点「停止服务」或关窗口就停。
+
+```powershell
+cd desktop
+npm install              # 首次：装 electron 与打包工具（走 .npmrc 里的镜像源）
+npm run build:exe        # 站点构建 → 打包运行时 → 出 exe
+npm run build:exe:fast   # 只改了 main.js / ui 时用，跳过 astro build
+```
+
+产物：`desktop/release/ReadBook-1.0.0-portable.exe`（约 **92MB**，免安装，双击即用）。
+
+> 完整步骤、目录说明、自定义与常见报错见 **《打包教程.md》**。
+
+工作原理与几个要点：
+
+- **服务端被 esbuild 打成单文件**（`desktop/runtime/app/dist/server/server.mjs`，1.3MB），运行时不再需要 `node_modules`，随包运行时只有 7MB（含 5.8MB 词库）。
+- **服务用 Electron 自带的 Node 22.22 跑**（`ELECTRON_RUN_AS_NODE=1`），实测该版本支持 `node:sqlite`，所以不用额外带 `node.exe`；若以后 Electron 升级换了 Node 版本，需要重新确认这一点。
+- **配置**存 `%APPDATA%\ReadBook\config.json`，**数据**默认在 `%APPDATA%\ReadBook\data`（可在界面里改成任意目录，换目录等于换一套数据）。首次启动会把随包词库铺到数据目录。
+- 界面可改：端口（默认 4321，与 Docker 版一致，同时跑要改一个）、是否允许局域网访问、数据目录、管理员用户名/密码、启动后是否自动打开浏览器。
+- 关窗口会先停服务再退出；同一时间只允许开一个启动器实例。
+- `desktop/.npmrc` 已把 npm 源与 electron / electron-builder 的二进制下载都指向 npmmirror，国内可直接装。
+- 改了站点代码要重新 `npm run build:exe`（不是 `build:exe:fast`），否则 exe 里还是旧页面。
+
+## 六、变更记录
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 新增《打包教程.md》：桌面版 exe 的完整打包流程（前置条件、三步命令、四个构建命令的区别、目录结构、esbuild 单文件 + banner 原理、Electron 内置 Node 跑服务的验证方法、日常改动对照表、自定义端口/图标/版本/安装版、自验清单、11 条常见报错、与 Docker 版的数据迁移、安全提醒）；README 与部署手册补指向链接，需求确认单补文档清单 | 打包步骤散落在 README 与部署手册里，且踩过的坑（npm 源、banner、文件占用）没地方沉淀，下次重新打包会重复踩 |
+| 2026-11-05 | 新增桌面版：`desktop/` 下用 Electron 做启动器（端口 / 局域网开关 / 数据目录 / 管理员账号密码 / 自动开浏览器 / 启动·停止 / 实时日志），`scripts/build-runtime.mjs` 用 esbuild 把服务端打成单文件（1.3MB）并只带 `dist/client` 与词库种子，运行时 7.2MB；`electron-builder` 出 `ReadBook-1.0.0-portable.exe` 92MB。实测：全新安装默认端口 4321、数据目录 `%APPDATA%\ReadBook\data`、首次启动自动铺词库；改端口 4400 → 启动 → `/api/health` 200（`dict.words=30001`）、`/login` 200、CSS 200 → 停止后端口不再响应；关窗口会先停服务。Electron 38.8.6 自带 Node 22.22 支持 `node:sqlite`，无需另带 node.exe | 需求变更：想要一个双击即用、能设端口再启停服务的 exe，不想装 Docker |
+| 2026-11-05 | 把「使用指南」版本重新构建并部署到容器：`docker compose up -d --build` 通过、镜像 `readbook:latest` 799MB（无悬空镜像残留）、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷 `readbook_readbook-data` 旧数据完好（1 个账号 admin + 老人与海）；容器内实测 `/guide` 200、`/about` 404、页面 HTML 无 `RPA` / `你的名字` / `you@example` / `github` / `mailto:` 残留、页脚为「© 2026 ReadBook 英文阅读站」、导航 6 项含「使用指南」；普通账号 375px 导航一行（末项右边缘 341px）、320px 两行不溢出；管理员因多一项「账号管理」（共 7 项）在 375px 仍是两行，属既有行为；空闲内存 78MB，临时验证账号已删 | 页面改版需要上线到容器环境，并确认非 root 用户 + 命名卷下新版页面与数据都正常 |
+| 2026-11-05 | 删除「关于我」页（`/about`），改为「网站使用指南」`/guide`：去掉头像、姓名、职位、个人简介、邮箱与 GitHub 等全部个人信息，页脚版权由「© 年份 你的名字」改为「© 年份 ReadBook 英文阅读站」，页脚社交链接换成「使用指南」入口；`site.ts` 移除 `author` / `footerLinks` / `about`，新增 `guide`（三步上手 + 6 组功能说明 + 常见问题），`ContactLink` / `SocialLink` 两个不再使用的接口一并删除；CSS 删 `.about-hero` / `.avatar`，新增 `.step-num` / `.guide-list` / `.faq-item`。顶栏第 6 项从 3 字变 4 字，375px 实测折成两行，故把 ≤560px 的导航内边距由 `6px 8px` 收到 `6px 6px`，375px 回到一行（最后一项右边缘 341px，余 34px），320px 仍为两行但不溢出 | 需求变更：站点不再展示任何个人信息，把这一页改成给使用者看的操作说明 |
 | 2026-11-05 | 把「日记」版本重新构建并部署到容器：`docker compose up -d --build` 34s 通过、镜像 `readbook:latest` 799MB、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷 `readbook_readbook-data` 旧数据完好（1 个账号，零迁移）；容器内实测注册临时账号 → 新增日记 → `/diary` 200（「共 1 篇」「周四」「容器内验证」均正确）→ `diary.json` 以 `app` 用户落盘 → 删账号后目录清理干净；空闲内存 57MB | 日记功能需要上线到容器环境，并确认非 root 用户 + 命名卷下新增的 `diary.json` 能正常读写、删账号能连带清理 |
 | 2026-11-05 | 新增「日记」独立栏目：`/diary` 顶部写作区（日期 + 可选标题 + 正文）按日期倒序列出，每条可编辑 / 删除；存储 `data/users/<id>/diary.json`（按账号隔离、老账号零迁移），新增 `/api/diary` 接口（GET/POST/PATCH/DELETE）、`site.ts` 的 `nav` 与 `diary` 配置块；日期由浏览器本地生成、服务端只做格式与真实性校验。顶栏加到 6 项后在 375px 会挤出右边缘（实测溢出 9px），补一条 ≤560px 的导航媒体查询（收字号 / 内边距、允许换行）。无新增依赖，测试 88 → 100 | 需求变更：想加日记功能，单开一个栏目 |
 | 2026-11-05 | 两个列表页（`/` 与 `/zh`）的卡片在进度徽章后加「✎ N 条笔记」：`notes.ts` 新增 `readNoteCounts()` 一次读 `notes.json` 汇总，无笔记的文章不显示徽章，`reader.notes` 关掉时不查询；重建镜像并 `docker compose up -d --build` 部署，容器 `Up (healthy)`，容器内实测中英文列表徽章数量正确、无笔记文章不出徽章（验证文章已删）；测试 87 → 88 | 补上一轮评估时留下的「列表页看不到哪本书有笔记」的缺口 |

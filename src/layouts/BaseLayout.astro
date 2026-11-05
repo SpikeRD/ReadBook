@@ -110,15 +110,9 @@ const here = strip(Astro.url.pathname);
 
     <footer class="site-footer">
       <div class="container footer-row">
-        <span>© {new Date().getFullYear()} {siteConfig.author}</span>
+        <span>© {new Date().getFullYear()} {siteConfig.siteName}</span>
         <span class="row" style="gap:14px">
-          {
-            siteConfig.footerLinks.map((link) => (
-              <a href={link.href} target={link.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
-                {link.label}
-              </a>
-            ))
-          }
+          <a href="/guide">使用指南</a>
         </span>
       </div>
     </footer>

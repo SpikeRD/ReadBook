@@ -13,7 +13,15 @@
 
 ## 文档同步
 - 改动代码要同步：`README.md`（功能 + 变更记录表）、`需求确认单.md`（变更记录表）、必要时 `部署手册.md`。变更记录格式：日期 + 改了什么 + 为什么。
-- `测试报告.md` 是阶段性快照，不随每次小改更新；但 README 里写的测试条数（当前 100 条）要同步。
+- `测试报告.md` 是阶段性快照，不随每次小改更新；但 README 里写的测试条数（当前 107 条）要同步。
+
+## 安全与凭据（2026-11-05 收口）
+- **`data/users.json`、`data/users/**`、`data/ecdict.csv` 不允许进 git**（已在 `.gitignore`，且已 `git rm --cached`）。新增数据文件先确认 ignore 生效再 add。
+- `ADMIN_PASSWORD` 没有默认值：留空 = 不启用配置管理员，首个注册者成为站长。compose 的 `SESSION_SECRET` 用 `${VAR:?}` 必填；`prepare.mjs` 首次生成 `.env` 时写随机密钥。改 env 后必须 `up -d`。
+- 在线词典兜底默认走有道 `jsonapi`（`ONLINE_DICT_URL` 可换模板，`off` 关闭）；只缓存命中的词。
+
+## 类型检查
+- `npm run check` 曾经因 `tsconfig` 把 `desktop/runtime/app/dist/**` 拉进检查而 V8 abort。`exclude` 必须保留 `desktop`；加新目录时先想清楚是否含打包产物。
 
 ## 界面约定
 - **顶栏 `siteConfig.nav` 加项必须实测窄屏**：`.nav-links` 按 max-content 撑开、父级不压缩，6 项在 375px 就会挤出右边缘被 `overflow-x:hidden` 裁掉（不会横向滚动，只是看不见）。`global.css` 末尾已有一条 `@media (max-width:560px)` 收字号/内边距 + `flex:1 1 100%` 兜底，再加项要重新量 375px 与 320px。

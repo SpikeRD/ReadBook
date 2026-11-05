@@ -143,7 +143,7 @@ npm run start
   - **每个账号可以自己换引擎**：顶栏头像菜单 →「翻译设置」（或直接访问 `/settings`）。默认「站点默认（免费腾讯翻译）」，可改成「个人接口」并填自己的接口地址与 API Key。设置只对当前账号生效，存在 `data/users/<用户id>/settings.json`，换设备登录即生效；密钥只以掩码（如 `••••3456`）回传，不会明文显示。切换引擎后，旧引擎翻译过的段落会重新翻译一遍（译文缓存按服务商区分）。站长可在 `site.ts` 把 `translation.userConfigurable` 设为 `false`，关掉这个入口并让所有人跟随站点默认。
   - 个人接口的地址用 `{q}` 表示原文、`{to}` 表示目标语言、`{key}` 表示密钥；地址里没写 `{key}` 时，密钥会放在 `Authorization: Bearer` 请求头里。返回体含 `translation` / `translatedText` / `data.translation` 任一字段即可。
 - **安全**：口令式共享访问已移除；所有写请求做同源校验（CSRF），未登录访问页面跳登录页、访问接口返回 401，普通用户访问管理接口返回 403，文章 id 经过路径安全校验。反向代理上 HTTPS 时把 `.env` 的 `COOKIE_SECURE` 改为 `1`（Docker 用环境变量），并把 `SESSION_SECRET` 换成随机长字符串。容器以非 root 用户 `app` 运行。
-- **文档索引**：完整部署、备份、HTTPS、故障排查见 **[部署手册.md](部署手册.md)**；最近一轮全面测试的结论与数据见 **[测试报告.md](测试报告.md)**。
+- **文档索引**（全部在 [`docs/`](docs/) 下，按问题找文档见 [docs/README.md](docs/README.md)）：需求口径见 **[需求确认单.md](docs/需求确认单.md)**；完整部署、备份、HTTPS、故障排查见 **[部署手册.md](docs/部署手册.md)**；桌面版 exe 打包见 **[打包教程.md](docs/打包教程.md)**；最近一轮全面测试的结论与数据见 **[测试报告.md](docs/测试报告.md)**。
 
 ---
 
@@ -201,7 +201,7 @@ docker compose down -v                  # 停止并删除数据卷（会清空�
 > 另外，compose v2 **会自动读取项目根的 `.env`** 做 `${VAR}` 替换，所以本机 `.env` 里的 `ADMIN_PASSWORD` 对容器同样生效；`.env` 本身不会进镜像（`.dockerignore` 已排除），容器内靠 `environment:` 注入。优先级：**shell 环境变量 > `.env` > compose 里的默认值**。
 > 部署后请打开 `/admin`：如果看到红色「管理员密码仍为默认的 admin」告警，说明还没设强密码。
 
-完整部署、备份、HTTPS、故障排查与上线检查清单见 **[部署手册.md](部署手册.md)**。
+完整部署、备份、HTTPS、故障排查与上线检查清单见 **[docs/部署手册.md](docs/部署手册.md)**。
 
 ### 方式二：docker run
 
@@ -271,7 +271,7 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 1. 文章分页 / 搜索：文章数量变大后给首页加搜索与分页。
 2. 阅读进度与「已掌握」的复习提醒（需求明确本轮不做遗忘曲线）。
-3. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见部署手册。
+3. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见 [部署手册的备份章节](docs/部署手册.md)。
 4. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`。
 5. 翻译质量增强：默认腾讯翻译为网页端接口，长文可出现机翻腔；可接入 DeepL / 百度 / 腾讯正式 API。
 6. 账号管理增强：目前没有邀请码、管理员账号不能被删除、也没有「停用账号」状态，可按需补。
@@ -291,7 +291,7 @@ npm run build:exe:fast   # 只改了 main.js / ui 时用，跳过 astro build
 
 产物：`desktop/release/ReadBook-1.0.0-portable.exe`（约 **92MB**，免安装，双击即用）。
 
-> 完整步骤、目录说明、自定义与常见报错见 **《打包教程.md》**。
+> 完整步骤、目录说明、自定义与常见报错见 **[docs/打包教程.md](docs/打包教程.md)**。
 
 工作原理与几个要点：
 
@@ -307,6 +307,7 @@ npm run build:exe:fast   # 只改了 main.js / ui 时用，跳过 astro build
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 文档整理：`需求确认单.md` / `部署手册.md` / `打包教程.md` / `测试报告.md` 用 `git mv` 移入 `docs/`（保留 git 历史），新增 `docs/README.md` 作「按问题找文档」索引；根 README 的文档索引改为指向 `docs/`，并补上此前没有入口的《需求确认单》；部署手册 / 打包教程 / 需求确认单之间的互链改为相对路径链接 | 根目录平铺 5 份 md 找起来乱，且《需求确认单》在 README 里一直没有任何入口。移动前已核实没有代码 / 脚本 / Docker 构建读取这些路径（`.dockerignore` 只放行根 README） |
 | 2026-11-05 | 补齐发音兜底：`speech.ts` 在「没有英文音色 / 合成报错 / 环境不支持」时自动改用词典音源（`site.ts` 的 `speechFallbackUrl`，默认有道 dictvoice），两路都失败才提示；新增 `tests/speech.test.mjs` 3 条，测试 107 → 110 | 原实现只有 Web Speech，Linux 或没装英文语音包的浏览器点单词毫无反应，需求里的「单词语音兜底」一直空着 |
 | 2026-11-05 | 安全与文档收口：① `git rm --cached` 移除 `data/users.json`、`data/users/**`、`data/ecdict.csv`（磁盘文件保留，继续被 `.gitignore` 覆盖）；② `ADMIN_PASSWORD` 不再有 `admin` 默认值（留空 = 首个注册者成为站长），`prepare` 在生成 `.env` 时自动写入随机 `SESSION_SECRET`，compose 的 `SESSION_SECRET` 改为必填、缺失直接报错；③ 新增 `.nvmrc`（22）；④ 修好 `npm run check`（`tsconfig` 排除 `desktop`，此前会把 esbuild 压缩产物拉进检查并 OOM abort），实测 83 文件 0 错 0 警告；⑤ 在线词典兜底默认接通（有道 jsonapi，未命中才提示「未收录」），`ONLINE_DICT_URL` 可换源或设 `off` 关闭；⑥ 测试 100 → 107 | 审计发现真实用户数据被提交进版本库、类型检查崩溃、默认弱口令，以及需求文档仍停留在口令方案 |
 | 2026-11-05 | 新增《打包教程.md》：桌面版 exe 的完整打包流程（前置条件、三步命令、四个构建命令的区别、目录结构、esbuild 单文件 + banner 原理、Electron 内置 Node 跑服务的验证方法、日常改动对照表、自定义端口/图标/版本/安装版、自验清单、11 条常见报错、与 Docker 版的数据迁移、安全提醒）；README 与部署手册补指向链接，需求确认单补文档清单 | 打包步骤散落在 README 与部署手册里，且踩过的坑（npm 源、banner、文件占用）没地方沉淀，下次重新打包会重复踩 |

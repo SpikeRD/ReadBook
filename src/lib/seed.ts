@@ -17,12 +17,36 @@ Do not worry about understanding everything at the first try. Read the sentence 
 Language is a tool for ideas. The more you read, the more ideas you can carry, and the easier it becomes to express your own thoughts in English and in Chinese. Start with one page today, and let the habit do the rest.
 `;
 
+/* ───────────── 中文示例文章（中文阅读，纯阅读） ───────────── */
+
+export const SAMPLE_ZH_ARTICLE_TITLE = '慢读的力气（中文示例）';
+
+export const SAMPLE_ZH_ARTICLE_TEXT = `
+# 慢读的力气
+
+读书这件事，快并不一定是好事。一页一页地读，遇到不懂的地方停下来想一想，反而记得更牢。速度带来的是数量，停顿带来的是理解。
+
+# 遇到生字怎么办
+
+中文阅读里没有查词按钮，也不需要。遇到不认识的字，先看上下文，往往能猜出大意；实在猜不出，再去查。这个"先猜后查"的顺序，比边读边查更接近真实的阅读。
+
+# 每天读一点
+
+把阅读放在固定的时间：通勤的地铁上、睡前的二十分钟、午饭后的一小段空档。时间不必长，但要是自己的。日子久了，读过的字会连成线，线会连成面。
+
+# 不必读完
+
+有些书翻几页就够了，有些书要读很多遍。读不下去的时候合上，不必勉强。读书是工具，不是任务；它服务于你，而不是相反。
+`;
+
 /** 为新用户创建欢迎文章（失败不影响注册流程） */
 export async function seedWelcomeArticle(userId: string): Promise<boolean> {
   try {
     const { createArticle } = await import('./articles.ts');
-    const result = await createArticle(userId, { title: SAMPLE_ARTICLE_TITLE, text: SAMPLE_ARTICLE_TEXT });
-    return !!result.ok;
+    const en = await createArticle(userId, { title: SAMPLE_ARTICLE_TITLE, text: SAMPLE_ARTICLE_TEXT });
+    // 中文阅读是独立的第二套列表，也给一篇示例，避免 /zh 首屏空白
+    const zh = await createArticle(userId, { title: SAMPLE_ZH_ARTICLE_TITLE, text: SAMPLE_ZH_ARTICLE_TEXT, lang: 'zh' });
+    return !!en.ok || !!zh.ok;
   } catch (err) {
     console.warn('[seed] 欢迎文章创建失败', err);
     return false;

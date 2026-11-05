@@ -1,0 +1,47 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+import { listArticles, formatBytes } from '../lib/articles';
+
+// 中文阅读列表：只列中文文章，与英文列表（/）完全分开。
+// 中文文章是纯阅读（不点词、不翻译、不生词本），所以这里不显示生词相关信息。
+const articles = (await listArticles(Astro.locals.user!.id)).filter((a) => a.lang === 'zh');
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+---
+
+<BaseLayout current="/zh" title={siteConfig.zhReader.label}>
+  <div class="row" style="justify-content:space-between; margin-bottom:6px">
+    <h1 class="page-title">{siteConfig.zhReader.label}</h1>
+    <a class="btn btn-primary" href="/import?lang=zh">＋ 导入中文文章</a>
+  </div>
+  <p class="page-sub">共 {articles.length} 篇 · 纯阅读：不点词查释义、不做全文翻译</p>
+
+  {
+    articles.length === 0 ? (
+      <div class="card empty">
+        <p>还没有中文文章。</p>
+        <p class="small">打开「导入」页，把语言选成「中文阅读」，粘贴一段中文或上传 txt / md 文件即可。</p>
+        <a class="btn btn-primary" href="/import?lang=zh">去导入</a>
+      </div>
+    ) : (
+      articles.map((a) => (
+        <a class="card article-card" href={`/read/${a.id}`}>
+          <article>
+            <h3>{a.title}</h3>
+            <p class="article-excerpt">{a.excerpt}</p>
+            <div class="meta">
+              <span>{a.wordCount} 字</span>
+              <span>{formatBytes(a.bytes)}</span>
+              <span>{formatDate(a.createdAt)}</span>
+              <span class="badge">可阅读</span>
+            </div>
+          </article>
+        </a>
+      ))
+    )
+  }
+</BaseLayout>

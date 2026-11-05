@@ -5,7 +5,7 @@
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { toBlocks, countWords, byteLength, type Paragraph } from './text.ts';
+import { toBlocks, countWords, countChineseChars, byteLength, type Paragraph, type ArticleLang } from './text.ts';
 import { dataRoot, userDir, legacyDir, safeId } from './paths.ts';
 import { siteConfig } from '../config/site.ts';
 
@@ -19,6 +19,11 @@ export interface ArticleRecord {
   bytes: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * 文章语言：'zh' 为中文阅读（纯阅读，不点词、不翻译），缺省视为英文。
+   * 老文章没有该字段，一律按英文处理，无需迁移。
+   */
+  lang?: ArticleLang;
 }
 
 export interface ArticleSummary {
@@ -28,6 +33,8 @@ export interface ArticleSummary {
   bytes: number;
   createdAt: string;
   excerpt: string;
+  /** 已归一化的语言（老数据缺省为 'en'） */
+  lang: ArticleLang;
 }
 
 export interface SaveResult {
@@ -95,6 +102,11 @@ async function persistIndex(userId: string, map: Map<string, ArticleRecord>): Pr
   return next;
 }
 
+/** 文章语言（老数据没有 lang 字段时按英文处理） */
+export function articleLang(rec: { lang?: ArticleLang }): ArticleLang {
+  return rec.lang === 'zh' ? 'zh' : 'en';
+}
+
 export async function listArticles(userId: string): Promise<ArticleSummary[]> {
   const map = await loadIndex(userId);
   return [...map.values()]
@@ -106,6 +118,7 @@ export async function listArticles(userId: string): Promise<ArticleSummary[]> {
       bytes: a.bytes,
       createdAt: a.createdAt,
       excerpt: excerptOf(a),
+      lang: articleLang(a),
     }));
 }
 
@@ -156,10 +169,14 @@ export async function freeDiskBytes(): Promise<number | null> {
   }
 }
 
-export async function createArticle(userId: string, input: { title?: string; text: string }): Promise<SaveResult> {
+export async function createArticle(
+  userId: string,
+  input: { title?: string; text: string; lang?: ArticleLang }
+): Promise<SaveResult> {
   const text = input.text.replace(/\r\n?/g, '\n').trim();
   if (!text) return { ok: false, error: '内容为空，无法导入。' };
 
+  const lang: ArticleLang = input.lang === 'zh' ? 'zh' : 'en';
   const limits = siteConfig.limits;
   const bytes = byteLength(text);
   if (bytes > limits.maxArticleBytes) {
@@ -193,11 +210,12 @@ export async function createArticle(userId: string, input: { title?: string; tex
     id: randomUUID().slice(0, 8),
     title: title.slice(0, 160),
     text,
-    blocks: toBlocks(text),
-    wordCount: countWords(text),
+    blocks: toBlocks(text, lang),
+    wordCount: lang === 'zh' ? countChineseChars(text) : countWords(text),
     bytes,
     createdAt: now,
     updatedAt: now,
+    lang,
   };
   await fs.writeFile(path.join(articlesDir(userId), `${record.id}.json`), JSON.stringify(record), 'utf8');
   map.set(record.id, record);

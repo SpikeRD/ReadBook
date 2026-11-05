@@ -2,6 +2,8 @@
 
 以「英文阅读器」为核心的个人网站：注册 / 登录后导入英文文章 → 点词查中文释义并发音 → 生词自动进生词本。所有数据（文章、生词本、译文缓存）按账号隔离保存在服务器，换设备登录同一账号即可继续。技术栈为 Astro + 轻量 Node 后端，单进程跑在一台小服务器上即可。
 
+站内还有一套**独立的中文阅读**：导入中文文章后在 `/zh` 列表里纯阅读（分页、翻页、改标题、删除），不点词、不翻译、不进生词本，与英文阅读的数据和页面互不干扰。
+
 > 以下命令均在 **PowerShell**（Windows 10 开始菜单搜 "PowerShell"）中、于项目根目录执行。
 > 需要 Node.js **22.13 或更高版本**（内置 `node:sqlite`；本次验证使用 Node 22.22.2）。版本要求也写在 `.nvmrc` 与 `package.json` 的 `engines` 里，用 nvm / fnm 的人 `nvm use` 即可。
 
@@ -22,7 +24,7 @@ npm ci
 > 本项目没有 Python 依赖：`scripts/` 下三个脚本都是 Node ESM（`prepare.mjs` / `build-dict.mjs` / `fetch-ecdict.mjs`），测试也是 `node --test` 跑的 `.mjs`。
 > `uv` 是 Python 的包管理器，接进来没有可管理的东西，只会多一层没人用的壳。Docker 构建同样用 `npm ci`（见 `Dockerfile` 的 deps / build 阶段），两端一致。
 
-第一次打开网站会跳到登录页：点「创建第一个账号（站长）」注册，第一个账号会接管本机已有的示例文章；之后每个新注册的账号都会自动获得一篇欢迎示例文章。
+第一次打开网站会跳到登录页：点「创建第一个账号（站长）」注册，第一个账号会接管本机已有的示例文章；之后每个新注册的账号都会自动获得两篇欢迎示例文章（一篇英文、一篇中文），用来验证两套阅读都正常。
 
 ## 二、开发预览
 
@@ -42,7 +44,7 @@ npm run dev
 | `npm run start` | 以生产模式启动（先自动 `prepare`，再跑 `dist/server/entry.mjs`），同样监听 `http://127.0.0.1:4321` |
 | `npm run preview` | 与 `npm run start` 相同（方便记忆） |
 | `npm run check` | Astro / TypeScript 类型检查 |
-| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 61 条全通过） |
+| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 62 条全通过） |
 | `npm run dict:rebuild` | 重建本地词库 `data/dict.db`（已有 ECDICT 数据源时不再下载） |
 | `npm run dict:fetch` | 下载 ECDICT 并生成 30000 词词库（约 63MB 下载） |
 
@@ -95,6 +97,11 @@ npm run start
 - **并发安全**：用户表的「读 → 改 → 写回」全部串行执行，多个请求同时首次登录或同名并发注册不会再产生重复记录。
 - **改内容只需改一个文件**：`src/config/site.ts`（站点名、导航、社交链接、关于我、容量限制、是否点词自动进生词本、账号规则、全文翻译服务商等）；配色主题在 `src/config/themes.ts`。
 - **生词本按分组隔离**：每篇文章的生词只属于该文章；顶栏「生词本」可按分组标签切换。阅读页点词浮层里可以「加入本篇生词」，也可以新建自建分组（下拉/标签点击加入）；生词本页支持分组改名 / 删除 / 移动词条。导出 JSON 含分组结构，导入时可选合并或替换。
+- **中文阅读（与英文阅读分开）**：顶栏「中文阅读」→ `/zh`，只列中文文章；英文文章在首页 `/`，两边列表互不混入。导入时在「语言」里选「中文阅读」，文章会记下 `lang: "zh"`（存在同一份 `data/users/<用户id>/articles/*.json` 里，不新增目录，老文章没有该字段一律按英文处理，无需迁移）。
+  - 中文阅读页是**纯阅读**：正文不渲染可点击单词，没有「全文翻译」工具栏，没有「本文生词」侧栏，也不会写入生词本；保留分页、翻页 / 跳页、键盘左右键、改标题、删除。
+  - 字数统计按**字**（汉字数）而不是词；分页按 `siteConfig.zhReader.charsPerPage`（默认 1200 字/页，英文是 3000 字符/页）。
+  - 中文段落合并行时不插空格，避免粘贴的换行变成段内空格。
+  - 中文文章同样计入账号容量（单篇 1MB、账号 2GB），删除时一并清理它的翻译缓存目录（虽然不会产生）。
 - **本地词库约 3 万词**：`data/dict.db` 由 ECDICT 按词频截取前 30000 个常用词生成（含音标与中文释义，约 5.8MB），运行时只做索引点查、不整体载入内存。需要调整词数：
   ```powershell
   npm run dict:fetch                            # 下载 ECDICT（约 63MB，缓存到 data/ecdict.csv）并生成 30000 词
@@ -197,7 +204,7 @@ docker ps
 ### 部署注意
 
 - **环境变量优先于 `.env`**：用 `-e` / compose `environment` 设置的 `ADMIN_PASSWORD`、`SESSION_SECRET` 会覆盖配置文件；镜像内不包含 `.env`。
-- 容器以非 root 用户 `app` 运行，实测空闲常驻内存约 **35MB**（`docker stats`，读长文时约 50MB），compose 里限制了 `mem_limit: 1g`，适合 2 核 2G 小服务器。镜像体积约 **799MB**（`readbook:latest`，2026-10-24 实测）。
+- 容器以非 root 用户 `app` 运行，实测空闲常驻内存约 **38MB**（`docker stats`，读长文时约 50MB），compose 里限制了 `mem_limit: 1g`，适合 2 核 2G 小服务器。镜像体积约 **799MB**（`readbook:latest`，2026-11-05 实测）。
 - 镜像内自带健康检查（`/api/health`），`docker ps` 里状态应显示 `healthy`。
 - 换机器迁移：把 `docker volume` 里的数据复制过去，或用 `docker run --rm -v readbook_readbook-data:/data -v ${PWD}:/backup alpine tar czf /backup/readbook-data.tgz -C /data .` 备份。
 
@@ -229,7 +236,7 @@ src/scripts/client/     浏览器端
   vocab-store.ts        生词本数据层（服务端同步 + 旧数据迁移）
   dialog.ts             应用内弹窗（askText 支持自定义空值提示）
   theme / translate / speech / account-menu
-src/pages/              login / register / admin / index / import / read/[id] / vocabulary / settings / about
+src/pages/              login / register / admin / index（英文列表）/ zh（中文列表）/ import / read/[id] / vocabulary / settings / about
 src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), translate, settings, lookup, health
 ```
 
@@ -250,6 +257,8 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 把「中文阅读」版本重新构建并部署到容器：`docker compose up -d --build` 通过、镜像 `readbook:latest` 799MB、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷旧数据完好（admin + 老人与海，老文章无 `lang` 字段按英文显示）；容器内实测 `/zh` 返回 200、导入中文文章 → 阅读页无点词/生词侧栏 → 删除，全链路正常（测试文章已清理）；空闲内存 38MB | 中文阅读改动需要上线到容器环境，并确认老数据零迁移、非 root 用户 + 命名卷下中文文章可正常读写 |
+| 2026-11-05 | 新增「中文阅读」：`ArticleRecord` 加可选 `lang`（`'en' \| 'zh'`，老数据缺省按英文，无迁移），导入页加语言单选（`/import?lang=zh` 可预选），新增中文列表页 `/zh`，首页只列英文；阅读页按语言分支——中文不渲染可点单词、不显示全文翻译与本文生词侧栏、不加载点词脚本，字数按汉字计、分页 1200 字/页（`siteConfig.zhReader`）；新账号欢迎文章改为英文 + 中文各一篇；测试 61 → 62 条 | 需求变更：想加中文阅读，不需要翻译，和英文阅读分开 |
 | 2026-11-05 | 用新代码重建镜像并重新部署：`docker compose up -d --build` 1m11s 通过（词库 30001 条，用本地 `data/ecdict.csv` 离线生成）、容器 `Up (healthy)`、`/api/health` 正常；容器内实测 `/settings` 页面与 `/api/settings` 读写可用，设置落到命名卷 `/app/data/users/<id>/settings.json`；命名卷旧数据（admin + 老人与海）完好；镜像 799MB、空闲内存 33MB | 翻译设置改动需要上线到容器环境，并确认新接口在非 root 用户 + 命名卷下读写正常 |
 | 2026-11-05 | 全文翻译服务商改为「页面可设置」：新增 `/settings` 页与 `/api/settings` 接口，每个账号可在「站点默认（免费腾讯）」与「个人接口 + 自己的 API Key」之间切换，设置存 `data/users/<id>/settings.json`（文件不存在即跟随站点默认，老账号无需迁移）；`getProvider()` 支持传入账号设置，`translate.ts` / `api/translate.ts` / 阅读页 / 前端状态栏同步；顶栏头像菜单加「翻译设置」入口；`site.ts` 新增 `translation.userConfigurable` 开关；密钥只以掩码回传。无新增依赖，测试仍 61 条全通过 | 需求变更：翻译 API 想做成页面可配置，默认用免费的，也能填个人 Key，不必改代码或重启 |
 | 2026-10-24 | 完成 Docker 镜像构建与容器部署验证：`docker compose build` 2m46s 通过（词库 30001 条，用本地 `data/ecdict.csv` 生成）、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`、数据卷沿用旧数据（admin + 老人与海）；文档补镜像体积 799MB、空闲内存 35MB 与 `prepare` 在容器内跳过 TS 检查的说明 | 要求「整个项目部署到 Docker」，需留下可复现的实测结果，并把容器与宿主机行为差异写清 |

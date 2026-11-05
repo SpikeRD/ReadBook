@@ -21,6 +21,17 @@ export function countWords(text: string): number {
   return extractWords(text).length;
 }
 
+/** 汉字（含扩展 A 与兼容区），用于中文文章按「字」统计 */
+const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
+
+/** 统计中文文章的汉字数（不含标点与空格） */
+export function countChineseChars(text: string): number {
+  return (text.match(CJK_RE) ?? []).length;
+}
+
+/** 文章语言：'en' 英文阅读（点词查词）/ 'zh' 中文阅读（纯阅读） */
+export type ArticleLang = 'en' | 'zh';
+
 /** 把单词还原到可能的词根形式（用于查词兜底：running -> run） */
 export function candidateLemmas(word: string): string[] {
   const w = normalizeWord(word);
@@ -53,11 +64,13 @@ export interface Paragraph {
  * 把导入的文本拆成块：
  * - `# Heading` / `## Heading` / 全大写的短行 → 标题
  * - 空行分段；连续的普通行合并为一段
+ * 中文（lang='zh'）合并行时不插空格，否则中文段内会出现多余空格。
  */
-export function toBlocks(raw: string): Paragraph[] {
+export function toBlocks(raw: string, lang: ArticleLang = 'en'): Paragraph[] {
   const text = raw.replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ');
   const blocks: Paragraph[] = [];
   const chunks = text.split(/\n\s*\n/);
+  const joiner = lang === 'zh' ? '' : ' ';
   for (const chunk of chunks) {
     const lines = chunk.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) continue;
@@ -66,7 +79,7 @@ export function toBlocks(raw: string): Paragraph[] {
       blocks.push({ type: 'heading', text: lines[0].replace(/^#{1,6}\s+/, '').trim() });
       continue;
     }
-    const body = lines.join(' ');
+    const body = lines.join(joiner);
     if (body) blocks.push({ type: 'paragraph', text: collapse(body) });
   }
   return blocks;
@@ -77,8 +90,8 @@ function collapse(s: string): string {
 }
 
 /** 从正文推断一个默认标题 */
-export function inferTitle(text: string, fallback = ''): string {
-  const blocks = toBlocks(text);
+export function inferTitle(text: string, fallback = '', lang: ArticleLang = 'en'): string {
+  const blocks = toBlocks(text, lang);
   const heading = blocks.find((b) => b.type === 'heading');
   if (heading) return heading.text.slice(0, 120);
   // 没有 Markdown 标题时，取第一行短文本（<=80 字符且无句末标点）当标题

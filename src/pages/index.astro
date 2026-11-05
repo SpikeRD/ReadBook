@@ -3,7 +3,9 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { siteConfig } from '../config/site';
 import { listArticles, totalBytes, formatBytes } from '../lib/articles';
 
-const articles = await listArticles(Astro.locals.user!.id);
+// 首页只列英文文章；中文文章在 /zh（两种阅读完全分开）
+const all = await listArticles(Astro.locals.user!.id);
+const articles = all.filter((a) => a.lang !== 'zh');
 const total = await totalBytes(Astro.locals.user!.id);
 const limits = siteConfig.limits;
 const quotaPct = Math.min(100, (total / limits.maxTotalBytes) * 100);
@@ -14,9 +16,9 @@ function formatDate(iso: string): string {
 }
 ---
 
-<BaseLayout current="/" title="文章列表">
+<BaseLayout current="/" title="英文阅读">
   <div class="row" style="justify-content:space-between; margin-bottom:6px">
-    <h1 class="page-title">我的文章</h1>
+    <h1 class="page-title">英文阅读</h1>
     <a class="btn btn-primary" href="/import">＋ 导入文章</a>
   </div>
   <p class="page-sub">
@@ -27,8 +29,8 @@ function formatDate(iso: string): string {
   {
     articles.length === 0 ? (
       <div class="card empty">
-        <p>还没有文章。</p>
-        <p class="small">打开「导入」页，粘贴一段英文或上传 txt / md 文件即可开始。</p>
+        <p>还没有英文文章。</p>
+        <p class="small">打开「导入」页，粘贴一段英文或上传 txt / md 文件即可开始；中文文章请到「中文阅读」。</p>
         <a class="btn btn-primary" href="/import">去导入</a>
       </div>
     ) : (

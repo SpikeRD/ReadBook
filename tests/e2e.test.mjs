@@ -155,10 +155,10 @@ test('数据隔离：两个用户的文章与生词本互不可见', async () =>
 
   const listA = await req('/api/articles', { cookie: cookieA });
   const listB = await req('/api/articles', { cookie: cookieB });
-  // 新账号会各有 1 篇欢迎示例文章，A 多出自己导入的那篇
+  // 新账号会各有 2 篇欢迎示例文章（1 篇英文 + 1 篇中文），A 多出自己导入的那篇
   assert.ok(listA.data.articles.some((a) => a.id === articleId));
   assert.ok(!listB.data.articles.some((a) => a.id === articleId), 'B 不应看到 A 的文章');
-  assert.equal(listB.data.articles.length, 1, 'B 只有自己的欢迎文章');
+  assert.equal(listB.data.articles.length, 2, 'B 只有自己的欢迎文章（英文、中文各一篇）');
 
   // B 无法读取 A 的文章
   const readByB = await req(`/read/${articleId}`, { cookie: cookieB, origin: null });
@@ -339,6 +339,37 @@ test('全文翻译：参数校验、按页翻译、命中缓存、译文随页�
   // 刷新页面时应由服务端直接渲染出译文
   const page = await req(`/read/${articleId}`, { cookie, origin: null });
   assert.match(page.text, /data-has-cache="1"/, '已翻译的内容应随页面一起渲染');
+});
+
+/* ───────────── 中文阅读：与英文阅读分开 ───────────── */
+
+test('中文阅读：列表与英文分开，阅读页不渲染点词与生词侧栏', async () => {
+  const cookie = await register(uniq());
+  const created = await req('/api/articles', {
+    method: 'POST',
+    cookie,
+    body: { title: '中文测试文章', text: '# 第一节\n\n这是中文段落，用来验证纯阅读模式。', lang: 'zh' },
+  });
+  assert.equal(created.status, 200);
+  assert.equal(created.data.article.lang, 'zh', '导入时应记下语言');
+  const id = created.data.article.id;
+
+  // 列表按语言分开：中文只出现在 /zh
+  const list = await req('/api/articles', { cookie });
+  assert.equal(list.data.articles.find((a) => a.id === id).lang, 'zh');
+  const home = await req('/', { cookie, origin: null });
+  assert.ok(!home.text.includes('中文测试文章'), '首页只列英文文章');
+  const zhList = await req('/zh', { cookie, origin: null });
+  assert.equal(zhList.status, 200);
+  assert.match(zhList.text, /中文测试文章/);
+
+  // 阅读页：纯文本、无 .word 点词节点、无本文生词侧栏，翻译入口关闭
+  const page = await req(`/read/${id}`, { cookie, origin: null });
+  assert.equal(page.status, 200);
+  assert.ok(!page.text.includes('class="word"'), '中文文章不渲染可点单词');
+  assert.ok(!page.text.includes('id="article-vocab"'), '中文文章没有本文生词侧栏');
+  assert.match(page.text, /"lang":"zh"/);
+  assert.match(page.text, /中文纯阅读/);
 });
 
 /* ───────────── 阅读页：分页跳转 / 两栏对照 / 已移除的按钮 ───────────── */

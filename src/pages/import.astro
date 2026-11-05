@@ -4,16 +4,33 @@ import { siteConfig } from '../config/site';
 
 const limits = siteConfig.limits;
 const maxKb = Math.round(limits.maxArticleBytes / 1024);
+/** 从 /import?lang=zh 进入时预选中文，方便「中文阅读」页的导入入口 */
+const initialLang = Astro.url.searchParams.get('lang') === 'zh' ? 'zh' : 'en';
 ---
 
 <BaseLayout current="/import" title="导入文章">
   <h1 class="page-title">导入文章</h1>
-  <p class="page-sub">粘贴英文文本，或上传 txt / md 文件。单篇上限 {maxKb} KB，全部正文上限 2GB。</p>
+  <p class="page-sub">粘贴文本，或上传 txt / md 文件。单篇上限 {maxKb} KB，全部正文上限 2GB。</p>
 
   <form class="card stack" id="import-form" novalidate>
     <div>
       <label class="field" for="title">标题（可留空，自动取正文第一行）</label>
       <input type="text" id="title" name="title" placeholder="例如：The Quiet Power of Reading" maxlength="160" />
+    </div>
+
+    <div>
+      <span class="field">语言（决定进入哪个阅读器）</span>
+      <div class="row" style="gap:18px">
+        <label class="row small" style="gap:6px; cursor:pointer">
+          <input type="radio" name="lang" value="en" checked={initialLang === 'en'} />
+          <span>英文阅读（点词查释义、可翻译）</span>
+        </label>
+        <label class="row small" style="gap:6px; cursor:pointer">
+          <input type="radio" name="lang" value="zh" checked={initialLang === 'zh'} />
+          <span>中文阅读（纯阅读，不翻译、不查词）</span>
+        </label>
+      </div>
+      <p class="hint" style="margin:6px 0 0">中文文章只做纯阅读与分页，不会进入生词本。</p>
     </div>
 
     <div>
@@ -49,21 +66,46 @@ const maxKb = Math.round(limits.maxArticleBytes / 1024);
     const counter = document.getElementById('counter') as HTMLElement;
     const msg = document.getElementById('import-msg') as HTMLElement;
     const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+    const langInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="lang"]')
+    );
 
     const MAX_BYTES = 1024 * 1024;
+
+    /** 当前选择的语言：'en' 英文阅读 / 'zh' 中文阅读 */
+    function currentLang(): 'en' | 'zh' {
+      return langInputs.find((el) => el.checked)?.value === 'zh' ? 'zh' : 'en';
+    }
 
     function bytesOf(s: string): number {
       return new TextEncoder().encode(s).length;
     }
 
     function updateCounter(): void {
-      const words = textArea.value.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g)?.length ?? 0;
-      const kb = (bytesOf(textArea.value) / 1024).toFixed(1);
-      counter.textContent = `${words} 词 · ${kb} KB`;
-      counter.style.color = bytesOf(textArea.value) > MAX_BYTES ? '#a12b2b' : '';
+      const bytes = bytesOf(textArea.value);
+      // 英文按词、中文按字统计，与阅读页显示的「词 / 字」保持一致
+      const unit =
+        currentLang() === 'zh'
+          ? `${textArea.value.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g)?.length ?? 0} 字`
+          : `${textArea.value.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g)?.length ?? 0} 词`;
+      counter.textContent = `${unit} · ${(bytes / 1024).toFixed(1)} KB`;
+      counter.style.color = bytes > MAX_BYTES ? '#a12b2b' : '';
+    }
+
+    function updatePlaceholder(): void {
+      textArea.placeholder =
+        currentLang() === 'zh'
+          ? '把中文文本粘贴到这里…\n\n用空行分段；独占一行的 # 标题 会渲染成小标题。'
+          : 'Paste your English article here…\n\n用空行分段；独占一行的 # 标题 会渲染成小标题。';
     }
 
     textArea.addEventListener('input', updateCounter);
+    langInputs.forEach((el) =>
+      el.addEventListener('change', () => {
+        updatePlaceholder();
+        updateCounter();
+      })
+    );
 
     async function readFile(file: File): Promise<void> {
       if (file.size > MAX_BYTES) {
@@ -125,18 +167,20 @@ const maxKb = Math.round(limits.maxArticleBytes / 1024);
       }
       submitBtn.disabled = true;
       submitBtn.textContent = '导入中…';
+      const lang = currentLang();
       try {
         const res = await fetch('/api/articles', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ title: titleInput.value.trim(), text }),
+          body: JSON.stringify({ title: titleInput.value.trim(), text, lang }),
         });
         const data = await res.json();
         if (!res.ok || !data.ok) {
           showError(data.error || '导入失败，请稍后再试。');
           return;
         }
-        showOk(`导入成功：${data.article.title}（${data.article.wordCount} 词），正在打开阅读页…`);
+        const unit = lang === 'zh' ? '字' : '词';
+        showOk(`导入成功：${data.article.title}（${data.article.wordCount} ${unit}），正在打开阅读页…`);
         setTimeout(() => {
           location.href = `/read/${data.article.id}`;
         }, 600);
@@ -148,6 +192,7 @@ const maxKb = Math.round(limits.maxArticleBytes / 1024);
       }
     });
 
+    updatePlaceholder();
     updateCounter();
   </script>
 </BaseLayout>

@@ -31,7 +31,8 @@ export const siteConfig = {
 
   /** 顶部导航（顺序即展示顺序；首页与关于我在内） */
   nav: [
-    { label: '文章', href: '/' },
+    { label: '英文阅读', href: '/' },
+    { label: '中文阅读', href: '/zh' },
     { label: '导入', href: '/import' },
     { label: '生词本', href: '/vocabulary' },
     { label: '关于我', href: '/about' },
@@ -108,6 +109,17 @@ export const siteConfig = {
   pagination: {
     /** 每页约多少字符（英文约 3000 字符≈500 词；手机端排版约需翻 2-3 屏） */
     charsPerPage: 3000,
+  },
+
+  /**
+   * 中文阅读（与英文阅读完全分开：不点词、不翻译、不生词本）
+   * 中文一屏容纳的字比英文多，所以每页字数比英文小。
+   */
+  zhReader: {
+    /** 中文列表页标题 */
+    label: '中文阅读',
+    /** 中文文章每页约多少字 */
+    charsPerPage: 1200,
   },
 
   /**

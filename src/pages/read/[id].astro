@@ -4,6 +4,7 @@ import { siteConfig } from '../../config/site';
 import { getArticle, formatBytes } from '../../lib/articles';
 import { tokenizeParagraph } from '../../lib/reader-html';
 import { paginate } from '../../lib/paginate';
+import { countChineseChars, type ArticleLang } from '../../lib/text';
 import { getCachedTranslations, getProvider } from '../../lib/translate';
 import { getUserTranslationSettings } from '../../lib/translate-settings';
 
@@ -15,21 +16,28 @@ if (!article) {
   return Astro.redirect('/');
 }
 
+// 文章语言：中文文章走「纯阅读」分支（不点词、不翻译、不生词本）
+const lang: ArticleLang = article.lang === 'zh' ? 'zh' : 'en';
+const isZh = lang === 'zh';
+
 // 分页：把文章按内容切成多页，URL 用 ?page=N 表示
-const pages = paginate(article.blocks, { charsPerPage: siteConfig.pagination.charsPerPage });
+// 中文一屏字更多，用 zhReader.charsPerPage（默认 1200 字/页）
+const pages = paginate(article.blocks, {
+  charsPerPage: isZh ? siteConfig.zhReader.charsPerPage : siteConfig.pagination.charsPerPage,
+});
 const totalPages = pages.length;
 const requested = Number(Astro.url.searchParams.get('page') || '1');
 const currentPage = Math.min(Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 1), totalPages);
 const page = pages[currentPage - 1];
 const pageHref = (n: number) => `/read/${article.id}${n > 1 ? `?page=${n}` : ''}`;
 
-// 当前账号实际生效的翻译服务商（账号自选优先，否则站点默认）
-const translationSettings = await getUserTranslationSettings(userId);
-const activeProvider = getProvider(translationSettings);
+// 当前账号实际生效的翻译服务商（账号自选优先，否则站点默认）；中文文章不启用翻译
+const translationSettings = isZh ? null : await getUserTranslationSettings(userId);
+const activeProvider = isZh ? null : getProvider(translationSettings);
 
 // 已缓存的译文在服务端直接渲染，刷新 / 翻页后译文不会消失
 // 只渲染「当前服务商」翻译的缓存：换了服务商后旧译文不再顶替新结果
-const cachedTranslation = await getCachedTranslations(userId, article.id);
+const cachedTranslation = isZh ? null : await getCachedTranslations(userId, article.id);
 const cachedMap = new Map<number, string>();
 if (
   cachedTranslation &&
@@ -66,6 +74,7 @@ const allPageUnits = pages.map((p, i) => ({
 const readerMeta = {
   articleId: article.id,
   articleTitle: article.title,
+  lang,
   speechLang: siteConfig.speechLang,
   autoAdd: siteConfig.vocab.autoAddOnLookup,
   highlightLimit: siteConfig.limits.highlightLimit,
@@ -80,7 +89,7 @@ const readerMeta = {
   prefetchPages: siteConfig.translation.prefetchPages,
   prefetchTriggerPage: siteConfig.translation.prefetchTriggerPage,
   translation: {
-    enabled: !!activeProvider,
+    enabled: !isZh && !!activeProvider,
     provider: activeProvider?.id ?? siteConfig.translation.provider,
     providerLabel: activeProvider?.label ?? '',
     targetLang: siteConfig.translation.targetLang,
@@ -90,10 +99,10 @@ const readerMeta = {
   },
 };
 
-const pageWordCount = page.units.reduce(
-  (sum, u) => sum + (u.text.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g)?.length ?? 0),
-  0
-);
+// 本页字数：英文按词、中文按字
+const pageWordCount = isZh
+  ? page.units.reduce((sum, u) => sum + countChineseChars(u.text), 0)
+  : page.units.reduce((sum, u) => sum + (u.text.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g)?.length ?? 0), 0);
 ---
 
 <BaseLayout current="/" title={`${article.title}${totalPages > 1 ? ` · 第 ${currentPage}/${totalPages} 页` : ''}`}>
@@ -109,8 +118,8 @@ const pageWordCount = page.units.reduce(
     } catch (e) {}
   </script>
   <div class="reader-toolbar">
-    <a class="btn btn-sm" href="/">← 返回列表</a>
-    <a class="btn btn-sm" href="/vocabulary">生词本</a>
+    <a class="btn btn-sm" href={isZh ? '/zh' : '/'}>← 返回列表</a>
+    {!isZh && <a class="btn btn-sm" href="/vocabulary">生词本</a>}
     <span class="spacer"></span>
     <button class="btn btn-sm" id="translate-btn" type="button" aria-pressed="false" hidden>{siteConfig.translation.label}</button>
     <button class="btn btn-sm btn-danger" id="rename-btn" type="button">改标题</button>
@@ -128,15 +137,21 @@ const pageWordCount = page.units.reduce(
     <button class="btn btn-sm btn-ghost" id="translate-retry" type="button" hidden title="重新请求本页翻译并覆盖缓存">重新翻译</button>
     <span id="translate-status" class="muted" style="flex:1 1 100%; min-width:0"></span>
   </div>
-  <p class="hint" style="margin:-6px 0 14px">点击任意英文单词查看释义并发音；译文会保存在账号里，翻页和刷新都不会丢</p>
+  <p class="hint" style="margin:-6px 0 14px">
+    {
+      isZh
+        ? '中文纯阅读：点击文字不会查词，也没有全文翻译；翻页与刷新都会停在当前页。'
+        : '点击任意英文单词查看释义并发音；译文会保存在账号里，翻页和刷新都不会丢'
+    }
+  </p>
 
   <div class="row" style="justify-content:space-between; align-items:flex-end">
     <h1 class="page-title" id="article-title" style="margin-bottom:0">{article.title}</h1>
   </div>
   <p class="page-sub" style="margin-top:6px">
-    全文 {article.wordCount} 词 · {formatBytes(article.bytes)}
-    {totalPages > 1 && <span> · 第 {currentPage} / {totalPages} 页（本页 {pageWordCount} 词）</span>}
-    <span> · <span id="vocab-stat">…</span></span>
+    全文 {article.wordCount} {isZh ? '字' : '词'} · {formatBytes(article.bytes)}
+    {totalPages > 1 && <span> · 第 {currentPage} / {totalPages} 页（本页 {pageWordCount} {isZh ? '字' : '词'}）</span>}
+    {!isZh && <span> · <span id="vocab-stat">…</span></span>}
   </p>
 
   {
@@ -188,19 +203,31 @@ const pageWordCount = page.units.reduce(
     )
   }
 
-  <div class="card" style="padding:16px 18px">
-    <div class="row small" style="justify-content:space-between; align-items:center">
-      <strong style="font-size:14px">本文生词</strong>
-      <a href="/vocabulary" class="small">去生词本 →</a>
-    </div>
-    <div id="article-vocab" style="margin-top:8px"></div>
-  </div>
+  {
+    !isZh && (
+      <div class="card" style="padding:16px 18px">
+        <div class="row small" style="justify-content:space-between; align-items:center">
+          <strong style="font-size:14px">本文生词</strong>
+          <a href="/vocabulary" class="small">去生词本 →</a>
+        </div>
+        <div id="article-vocab" style="margin-top:8px"></div>
+      </div>
+    )
+  }
 
   <article class="reader" id="reader">
     {
       page.units.map((unit) => {
         const zh = cachedMap.get(unit.index) || '';
         const zhClass = `zh-block${zh ? '' : ' is-empty'}${unit.type === 'heading' ? ' zh-heading' : ''}`;
+        // 中文纯阅读：直接输出纯文本（不包 .word，点了也不会查词）
+        if (isZh) {
+          return (
+            <div class="reader-block" data-block={unit.index} data-type={unit.type}>
+              {unit.type === 'heading' ? <h2>{unit.text}</h2> : <p>{unit.text}</p>}
+            </div>
+          );
+        }
         return (
           <div class="reader-block" data-block={unit.index} data-type={unit.type}>
             {unit.type === 'heading' ? <h2>{unit.text}</h2> : <p set:html={tokenizeParagraph(unit.text)} />}
@@ -225,26 +252,31 @@ const pageWordCount = page.units.reduce(
         {currentPage < totalPages ? (
           <a class="btn btn-primary" href={pageHref(currentPage + 1)} rel="next">下一页 ›</a>
         ) : (
-          <a class="btn btn-primary" href="/">全书完 · 返回列表</a>
+          <a class="btn btn-primary" href={isZh ? '/zh' : '/'}>全书完 · 返回列表</a>
         )}
       </nav>
     )
   }
 
   <div class="row" style="margin-top:16px; justify-content:center">
-    <a class="btn" href="/">← 返回列表</a>
+    <a class="btn" href={isZh ? '/zh' : '/'}>← 返回列表</a>
   </div>
 
   <div class="popover" id="word-popover" role="dialog" aria-label="单词释义" hidden></div>
 
   <script id="reader-meta" type="application/json" set:html={JSON.stringify(readerMeta)} />
   <script>
-    import '../../scripts/client/reader';
     import { initTranslate } from '../../scripts/client/translate';
     import { askText, confirmDelete, notify } from '../../scripts/client/dialog';
     import { initKeyboardPaging } from '../../scripts/client/reader/pager';
 
     initTranslate();
+
+    // 中文文章只加载翻页 / 改标题 / 删除，不加载点词与生词模块
+    const readerLang = (
+      JSON.parse(document.getElementById('reader-meta')?.textContent || '{}') as { lang?: string }
+    ).lang;
+    if (readerLang !== 'zh') void import('../../scripts/client/reader');
 
     const title = document.getElementById('article-title');
 

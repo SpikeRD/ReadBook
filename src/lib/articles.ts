@@ -7,6 +7,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { toBlocks, countWords, countChineseChars, byteLength, type Paragraph, type ArticleLang } from './text.ts';
 import { dataRoot, userDir, legacyDir, safeId } from './paths.ts';
+import { clearArticleProgress } from './progress.ts';
+import { clearArticleNotes } from './notes.ts';
 import { siteConfig } from '../config/site.ts';
 
 export interface ArticleRecord {
@@ -242,8 +244,10 @@ export async function deleteArticle(userId: string, id: string): Promise<boolean
   map.delete(key);
   await fs.rm(path.join(articlesDir(userId), `${key}.json`), { force: true });
   await persistIndex(userId, map);
-  // 删文章时一并清理该用户的翻译缓存
+  // 删文章时一并清理该用户的翻译缓存、阅读进度与笔记
   await fs.rm(path.join(userDir(userId), 'translations', `${key}.json`), { force: true });
+  await clearArticleProgress(userId, key);
+  await clearArticleNotes(userId, key);
   return true;
 }
 

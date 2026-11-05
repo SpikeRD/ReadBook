@@ -1,0 +1,120 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { siteConfig } from '../config/site';
+import { listEntries } from '../lib/diary';
+
+// 日记是独立栏目：与英文 / 中文阅读、生词本完全分开，只按日期归档。
+// 数据按账号存 data/users/<用户id>/diary.json，只有本人可见。
+const userId = Astro.locals.user!.id;
+const entries = await listEntries(userId);
+
+const diary = siteConfig.diary;
+
+/**
+ * 服务端算出的「今天」只是兜底（无 JS 时表单也有默认值）；
+ * 页面脚本会用浏览器本地日期覆盖它——容器跑在 UTC 时两者会差 8 小时，
+ * 以浏览器为准才不会出现「晚上写的日记记成昨天」。
+ */
+function localToday(d = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+/** 星期按 UTC 解析，纯字符串日期不涉及时区偏移 */
+function weekdayOf(date: string): string {
+  return WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? '';
+}
+
+/** 编辑时间显示为「11-05 21:30」，跨年时才带年份 */
+function formatUpdated(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const md = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}-${md}`;
+}
+
+const today = localToday();
+---
+
+<BaseLayout current="/diary" title={diary.label}>
+  <h1 class="page-title">{diary.label}</h1>
+  <p class="page-sub">
+    共 {entries.length} 篇 · 只有你自己能看到，换设备登录同一账号即可继续写
+  </p>
+
+  <form class="card stack diary-compose" id="diary-form" novalidate>
+    <div class="diary-compose-head">
+      <label class="field" for="diary-date" style="margin:0">日期</label>
+      <input type="date" id="diary-date" name="date" value={today} />
+      <input
+        type="text"
+        id="diary-title"
+        name="title"
+        placeholder="标题（可留空）"
+        aria-label="日记标题（可留空）"
+        maxlength={diary.maxTitleChars}
+        autocomplete="off"
+      />
+    </div>
+
+    <div>
+      <textarea
+        id="diary-body"
+        name="body"
+        rows="6"
+        data-max={diary.maxEntryChars}
+        aria-label="日记正文"
+        placeholder="今天发生了什么？写下来就好。（Ctrl + Enter 保存）"></textarea>
+      <p class="hint diary-counter" id="diary-counter">0 / {diary.maxEntryChars}</p>
+    </div>
+
+    <div id="diary-msg"></div>
+
+    <div class="row">
+      <button class="btn btn-primary" type="submit" id="diary-submit">保存</button>
+      <button class="btn" type="button" id="diary-cancel" hidden>取消编辑</button>
+    </div>
+  </form>
+
+  {
+    entries.length === 0 ? (
+      <div class="card empty">
+        <p>还没有日记。</p>
+        <p class="small">在上面写下今天，保存后会按日期倒序排在这里。</p>
+      </div>
+    ) : (
+      <div class="stack" id="diary-list">
+        {entries.map((e) => (
+          <article class="card diary-entry" data-id={e.id}>
+            <div class="diary-entry-head">
+              <time class="diary-entry-date" datetime={e.date}>
+                {e.date}
+              </time>
+              <span class="diary-entry-week">{weekdayOf(e.date)}</span>
+              {e.title && <h3 class="diary-entry-title">{e.title}</h3>}
+            </div>
+            <p class="diary-entry-body">{e.body}</p>
+            <div class="diary-entry-actions">
+              <button class="btn btn-sm" type="button" data-action="edit">
+                编辑
+              </button>
+              <button class="btn btn-sm btn-danger" type="button" data-action="delete">
+                删除
+              </button>
+              {e.updatedAt !== e.createdAt && (
+                <span class="small muted diary-entry-updated">改于 {formatUpdated(e.updatedAt)}</span>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    )
+  }
+</BaseLayout>
+
+<script>
+  import { setupDiaryPage } from '../scripts/client/diary-page';
+  setupDiaryPage();
+</script>

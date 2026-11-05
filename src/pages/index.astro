@@ -2,17 +2,30 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { siteConfig } from '../config/site';
 import { listArticles, totalBytes, formatBytes } from '../lib/articles';
+import { readProgressMap, type ProgressEntry } from '../lib/progress';
+import { readNoteCounts } from '../lib/notes';
 
 // 首页只列英文文章；中文文章在 /zh（两种阅读完全分开）
-const all = await listArticles(Astro.locals.user!.id);
+const userId = Astro.locals.user!.id;
+const all = await listArticles(userId);
 const articles = all.filter((a) => a.lang !== 'zh');
-const total = await totalBytes(Astro.locals.user!.id);
+const total = await totalBytes(userId);
 const limits = siteConfig.limits;
 const quotaPct = Math.min(100, (total / limits.maxTotalBytes) * 100);
+// 阅读进度：按账号存在服务器，换设备登录也能接着读
+const progress: Record<string, ProgressEntry> = siteConfig.reader.rememberProgress ? await readProgressMap(userId) : {};
+// 笔记条数：卡片上标「✎ N 条笔记」，功能关掉时不查
+const noteCounts: Record<string, number> = siteConfig.reader.notes ? await readNoteCounts(userId) : {};
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** 读到第几页的百分比（只有多页文章才显示进度条） */
+function progressPct(page: number, totalPages: number): number {
+  if (totalPages <= 1) return 0;
+  return Math.min(100, Math.max(0, Math.round((page / totalPages) * 100)));
 }
 ---
 
@@ -34,20 +47,36 @@ function formatDate(iso: string): string {
         <a class="btn btn-primary" href="/import">去导入</a>
       </div>
     ) : (
-      articles.map((a) => (
-        <a class="card article-card" href={`/read/${a.id}`}>
-          <article>
-            <h3>{a.title}</h3>
-            <p class="article-excerpt">{a.excerpt}</p>
-            <div class="meta">
-              <span>{a.wordCount} 词</span>
-              <span>{formatBytes(a.bytes)}</span>
-              <span>{formatDate(a.createdAt)}</span>
-              <span class="badge">可阅读</span>
-            </div>
-          </article>
-        </a>
-      ))
+      articles.map((a) => {
+        const p = progress[a.id];
+        const notes = noteCounts[a.id] ?? 0;
+        return (
+          <a class="card article-card" href={`/read/${a.id}${p ? `?page=${p.page}` : ''}`}>
+            <article>
+              <h3>{a.title}</h3>
+              <p class="article-excerpt">{a.excerpt}</p>
+              <div class="meta">
+                <span>{a.wordCount} 词</span>
+                <span>{formatBytes(a.bytes)}</span>
+                <span>{formatDate(a.createdAt)}</span>
+                {p && p.totalPages > 1 ? (
+                  <span class="badge progress-badge">
+                    读到 {p.page}/{p.totalPages} 页
+                  </span>
+                ) : (
+                  <span class="badge">可阅读</span>
+                )}
+                {notes > 0 && <span class="badge note-badge">✎ {notes} 条笔记</span>}
+              </div>
+              {p && p.totalPages > 1 && (
+                <div class="progress-track" aria-hidden="true">
+                  <span style={`width:${progressPct(p.page, p.totalPages)}%`} />
+                </div>
+              )}
+            </article>
+          </a>
+        );
+      })
     )
   }
 </BaseLayout>

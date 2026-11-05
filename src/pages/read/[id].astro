@@ -4,6 +4,9 @@ import { siteConfig } from '../../config/site';
 import { getArticle, formatBytes } from '../../lib/articles';
 import { tokenizeParagraph } from '../../lib/reader-html';
 import { paginate } from '../../lib/paginate';
+import { buildChapters, chapterUnitIndexes, currentChapter } from '../../lib/chapters';
+import { getArticleProgress, saveArticleProgress } from '../../lib/progress';
+import { listArticleNotes } from '../../lib/notes';
 import { countChineseChars, type ArticleLang } from '../../lib/text';
 import { getCachedTranslations, getProvider } from '../../lib/translate';
 import { getUserTranslationSettings } from '../../lib/translate-settings';
@@ -29,7 +32,53 @@ const totalPages = pages.length;
 const requested = Number(Astro.url.searchParams.get('page') || '1');
 const currentPage = Math.min(Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 1), totalPages);
 const page = pages[currentPage - 1];
-const pageHref = (n: number) => `/read/${article.id}${n > 1 ? `?page=${n}` : ''}`;
+// 页码链接一律带 ?page=：第 1 页也带上，否则点「1」回到无参数地址会被自动续读弹回上次页
+const pageHref = (n: number) => `/read/${article.id}?page=${n}`;
+
+// 章节：从已分页的块里识别（markdown 标题 + Chapter 1 / 第1章 这类显式标记）。
+// 只做渲染层的叠加，不改分页、不写回文章，因此页码与翻译缓存键都不变。
+const chapters = buildChapters(pages, {
+  enabled: siteConfig.reader.chapters,
+  maxTitleLen: siteConfig.reader.chapterTitleMaxLen,
+});
+const chapterStarts = chapterUnitIndexes(chapters);
+const activeChapter = currentChapter(chapters, page.units[0]?.index ?? 0);
+
+// 阅读进度：先读旧进度（用于自动续读），本次阅读再写回
+const savedProgress = siteConfig.reader.rememberProgress ? await getArticleProgress(userId, article.id) : null;
+const explicitPage = Astro.url.searchParams.has('page');
+if (!explicitPage && siteConfig.reader.autoResume && savedProgress && savedProgress.page > 1) {
+  const resume = Math.min(savedProgress.page, totalPages);
+  if (resume > 1) return Astro.redirect(pageHref(resume));
+}
+if (siteConfig.reader.rememberProgress) {
+  await saveArticleProgress(userId, article.id, currentPage, totalPages);
+}
+
+// 笔记：锚点是「全局块序号」，页码在这里反查，所以翻页、改分页大小都不会让笔记错位。
+// 每条笔记还带一段原文（quote），对不上说明正文变过，就只提示「原文已变动」、不跳转。
+const notesEnabled = siteConfig.reader.notes;
+const articleNotes = notesEnabled ? await listArticleNotes(userId, article.id) : [];
+const blockPage = new Map<number, number>();
+const blockText = new Map<number, string>();
+for (const p of pages) {
+  for (const unit of p.units) {
+    blockPage.set(unit.index, p.page);
+    blockText.set(unit.index, unit.text);
+  }
+}
+const noteItems = articleNotes.map((note) => {
+  const pageNo = blockPage.get(note.blockIndex) ?? 0;
+  const text = blockText.get(note.blockIndex) ?? '';
+  const anchored = pageNo > 0 && (!note.quote || text.includes(note.quote));
+  return { ...note, page: pageNo, anchored };
+});
+/** 块序号 → 该段的笔记条数（正文里给记过的段落加标记） */
+const notesByBlock = new Map<number, number>();
+for (const note of noteItems) {
+  if (!note.anchored) continue;
+  notesByBlock.set(note.blockIndex, (notesByBlock.get(note.blockIndex) ?? 0) + 1);
+}
 
 // 当前账号实际生效的翻译服务商（账号自选优先，否则站点默认）；中文文章不启用翻译
 const translationSettings = isZh ? null : await getUserTranslationSettings(userId);
@@ -81,6 +130,11 @@ const readerMeta = {
   currentPage,
   totalPages,
   hasCachedTranslation: hasCachedOnPage,
+  /** 笔记（前端只负责增删改，面板与段落标记由服务端直出） */
+  notes: {
+    enabled: notesEnabled,
+    maxNoteChars: siteConfig.limits.maxNoteChars,
+  },
   /** 本页原文（服务端直出，避免前端从 DOM 取文本时把 HTML 实体当成正文） */
   pageUnits: page.units.map((u) => ({ index: u.index, text: u.text })),
   /** 全部页原文（预翻译用） */
@@ -120,6 +174,7 @@ const pageWordCount = isZh
   <div class="reader-toolbar">
     <a class="btn btn-sm" href={isZh ? '/zh' : '/'}>← 返回列表</a>
     {!isZh && <a class="btn btn-sm" href="/vocabulary">生词本</a>}
+    {currentPage > 1 && <a class="btn btn-sm" href={pageHref(1)} title="回到第 1 页，并覆盖已记录的进度">从头开始</a>}
     <span class="spacer"></span>
     <button class="btn btn-sm" id="translate-btn" type="button" aria-pressed="false" hidden>{siteConfig.translation.label}</button>
     <button class="btn btn-sm btn-danger" id="rename-btn" type="button">改标题</button>
@@ -153,6 +208,28 @@ const pageWordCount = isZh
     {totalPages > 1 && <span> · 第 {currentPage} / {totalPages} 页（本页 {pageWordCount} {isZh ? '字' : '词'}）</span>}
     {!isZh && <span> · <span id="vocab-stat">…</span></span>}
   </p>
+
+  {
+    chapters.length >= 2 && (
+      <details class="chapter-nav">
+        <summary>
+          <span class="chapter-nav-label">目录 · 共 {chapters.length} 章</span>
+          {activeChapter && <span class="chapter-now">当前：{activeChapter.title}</span>}
+        </summary>
+        <ol class="chapter-list">
+          {chapters.map((c, i) => (
+            <li class={c.unitIndex === activeChapter?.unitIndex ? 'active' : ''}>
+              <a href={pageHref(c.page)}>
+                <span class="chapter-no">{i + 1}</span>
+                <span class="chapter-name">{c.title}</span>
+                <span class="chapter-page">第 {c.page} 页</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+      </details>
+    )
+  }
 
   {
     totalPages > 1 && (
@@ -215,21 +292,89 @@ const pageWordCount = isZh
     )
   }
 
+  {
+    notesEnabled && (
+      <details class="note-panel" id="note-panel" open={noteItems.length > 0}>
+        <summary>
+          <span class="note-panel-label">本文笔记 · 共 {noteItems.length} 条</span>
+          <span class="note-panel-hint">点段落右侧的 ✎ 记一条</span>
+        </summary>
+        {noteItems.length === 0 ? (
+          <p class="hint" style="margin:10px 0 0">
+            还没有笔记。把鼠标移到正文段落上，点右侧的 ✎ 就能为这一段记一条；笔记按账号保存，换设备登录也在。
+          </p>
+        ) : (
+          <ul class="note-list">
+            {noteItems.map((note) => (
+              <li class={`note-item${note.anchored ? '' : ' is-orphan'}`}>
+                <div class="note-meta">
+                  {note.anchored ? (
+                    <a class="note-jump" href={`${pageHref(note.page)}#block-${note.blockIndex}`}>
+                      第 {note.page} 页
+                    </a>
+                  ) : (
+                    <span class="note-jump is-orphan" title="正文变过，这条笔记无法定位到原来的段落">
+                      原文已变动
+                    </span>
+                  )}
+                  {note.quote && <span class="note-quote">{note.quote}</span>}
+                </div>
+                <div class="note-body">{note.body}</div>
+                <div class="note-actions">
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    type="button"
+                    data-note-edit={note.id}
+                    data-note-block={note.blockIndex}
+                  >
+                    编辑
+                  </button>
+                  <button class="btn btn-sm btn-ghost" type="button" data-note-delete={note.id}>
+                    删除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+    )
+  }
+
   <article class="reader" id="reader">
     {
       page.units.map((unit) => {
         const zh = cachedMap.get(unit.index) || '';
         const zhClass = `zh-block${zh ? '' : ' is-empty'}${unit.type === 'heading' ? ' zh-heading' : ''}`;
+        // 笔记：每段一个锚点按钮，记过的段落左侧有竖线（中文纯阅读同样适用）
+        const noteCount = notesByBlock.get(unit.index) ?? 0;
+        const blockClass =
+          'reader-block' +
+          (chapterStarts.has(unit.index) ? ' chapter-block' : '') +
+          (noteCount ? ' has-note' : '');
+        const noteButton = notesEnabled ? (
+          <button
+            class="note-add"
+            type="button"
+            data-note-add={unit.index}
+            title={noteCount ? `这一段有 ${noteCount} 条笔记` : '为这一段记笔记'}
+            aria-label={noteCount ? `这一段有 ${noteCount} 条笔记` : '为这一段记笔记'}
+          >
+            ✎
+          </button>
+        ) : null;
         // 中文纯阅读：直接输出纯文本（不包 .word，点了也不会查词）
         if (isZh) {
           return (
-            <div class="reader-block" data-block={unit.index} data-type={unit.type}>
+            <div class={blockClass} id={`block-${unit.index}`} data-block={unit.index} data-type={unit.type}>
+              {noteButton}
               {unit.type === 'heading' ? <h2>{unit.text}</h2> : <p>{unit.text}</p>}
             </div>
           );
         }
         return (
-          <div class="reader-block" data-block={unit.index} data-type={unit.type}>
+          <div class={blockClass} id={`block-${unit.index}`} data-block={unit.index} data-type={unit.type}>
+            {noteButton}
             {unit.type === 'heading' ? <h2>{unit.text}</h2> : <p set:html={tokenizeParagraph(unit.text)} />}
             <div class={zhClass} data-has-cache={zh ? '1' : '0'}>
               {zh || ''}
@@ -269,6 +414,7 @@ const pageWordCount = isZh
     import { initTranslate } from '../../scripts/client/translate';
     import { askText, confirmDelete, notify } from '../../scripts/client/dialog';
     import { initKeyboardPaging } from '../../scripts/client/reader/pager';
+    import { initNotes } from '../../scripts/client/reader/notes';
 
     initTranslate();
 
@@ -321,7 +467,15 @@ const pageWordCount = isZh
       articleId: string;
       currentPage: number;
       totalPages: number;
+      notes?: { enabled?: boolean; maxNoteChars?: number };
     };
     initKeyboardPaging(meta);
+
+    // 笔记：段落锚点按钮 + 面板编辑 / 删除（中英文阅读都启用）
+    initNotes({
+      articleId: meta.articleId,
+      enabled: meta.notes?.enabled === true,
+      maxNoteChars: meta.notes?.maxNoteChars || 2000,
+    });
   </script>
 </BaseLayout>

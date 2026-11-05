@@ -1,8 +1,10 @@
 # ReadBook 英文阅读站
 
-以「英文阅读器」为核心的个人网站：注册 / 登录后导入英文文章 → 点词查中文释义并发音 → 生词自动进生词本。所有数据（文章、生词本、译文缓存）按账号隔离保存在服务器，换设备登录同一账号即可继续。技术栈为 Astro + 轻量 Node 后端，单进程跑在一台小服务器上即可。
+以「英文阅读器」为核心的个人网站：注册 / 登录后导入英文文章 → 点词查中文释义并发音 → 生词自动进生词本。长文会自动分页、识别章节，记住每篇读到第几页，还能给任意段落记笔记。所有数据（文章、生词本、译文缓存、阅读进度、笔记）按账号隔离保存在服务器，换设备登录同一账号即可继续。技术栈为 Astro + 轻量 Node 后端，单进程跑在一台小服务器上即可。
 
 站内还有一套**独立的中文阅读**：导入中文文章后在 `/zh` 列表里纯阅读（分页、翻页、改标题、删除），不点词、不翻译、不进生词本，与英文阅读的数据和页面互不干扰。
+
+此外还有一个**独立的日记栏目**：`/diary`，按日期倒序记录，纯文本、可编辑可删除，只有本人可见；与阅读、生词本的数据完全分开。
 
 > 以下命令均在 **PowerShell**（Windows 10 开始菜单搜 "PowerShell"）中、于项目根目录执行。
 > 需要 Node.js **22.13 或更高版本**（内置 `node:sqlite`；本次验证使用 Node 22.22.2）。版本要求也写在 `.nvmrc` 与 `package.json` 的 `engines` 里，用 nvm / fnm 的人 `nvm use` 即可。
@@ -44,7 +46,7 @@ npm run dev
 | `npm run start` | 以生产模式启动（先自动 `prepare`，再跑 `dist/server/entry.mjs`），同样监听 `http://127.0.0.1:4321` |
 | `npm run preview` | 与 `npm run start` 相同（方便记忆） |
 | `npm run check` | Astro / TypeScript 类型检查 |
-| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 62 条全通过） |
+| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 100 条全通过） |
 | `npm run dict:rebuild` | 重建本地词库 `data/dict.db`（已有 ECDICT 数据源时不再下载） |
 | `npm run dict:fetch` | 下载 ECDICT 并生成 30000 词词库（约 63MB 下载） |
 
@@ -74,6 +76,9 @@ npm run start
   data/users/<用户id>/vocabulary.json   该用户的生词本（含分组）
   data/users/<用户id>/translations/     该用户的全文翻译缓存
   data/users/<用户id>/settings.json     该用户的翻译设置（仅自己改过才存在）
+  data/users/<用户id>/progress.json     该用户的阅读进度（没读过任何文章则不存在）
+  data/users/<用户id>/notes.json        该用户的笔记（没记过笔记则不存在）
+  data/users/<用户id>/diary.json        该用户的日记（没写过日记则不存在）
   data/dict.db                          公共词库（约 3 万词，所有用户共用）
   ```
 - 换设备：在新设备打开站点、用同一用户名密码登录即可，文章与生词本自动同步，无需导入导出。
@@ -110,6 +115,19 @@ npm run start
   ```
   完全离线时也可以用内置的约 460 词词表兜底（删除 `data/dict.db` 后启动会自动重建基础词库）。
 - **背景配色**：顶栏色块可切换 **白天 / 黑夜 / 护眼（豆沙绿）/ 暖黄（纸张）/ 高对比** 五种主题，首帧生效、刷新不闪白；选择保存在本机浏览器（这是唯一保存在本地的偏好，不影响数据）。
+- **章节目录与续读**：阅读页会自动识别章节——markdown 标题（`# 标题`），以及正文里的 `Chapter 1` / `CHAPTER IV` / `Part II` / `Book 3` / `Prologue` / `第1章` / `第十二回` / `楔子` 这类**显式标记**。识别结果只做渲染层展示：顶部「目录」折叠面板（带当前章节与每章页码）、章节标题加粗。它**不参与分页**，所以页码、旧书签和翻译缓存都不受影响，老文章也不用迁移（直接在已保存的 blocks 上识别）。刻意不把「全大写短行」当章节，否则书籍扉页的 `THE OLD MAN` / `THE SEA` 会被拆成一堆假章节。
+  - 阅读进度按账号存在 `data/users/<用户id>/progress.json`，每翻一页记录一次（同一页重复打开不重复写）。地址里没带 `?page` 时自动跳到上次读到的页；`?page=1`（或页面左上角「从头开始」按钮）表示从头重读。
+  - 两个列表页的卡片会显示「读到 N/M 页」和进度条，点卡片直接回到上次那页；删除文章时一并清理它的进度记录。
+  - 开关在 `src/config/site.ts` 的 `reader`：`chapters`（目录）、`rememberProgress`（记录进度）、`autoResume`（自动跳转，关掉后只在列表显示进度）、`chapterTitleMaxLen`（章节标题长度上限，默认 80，超过视为正文）、`notes`（段落笔记，见下条）。
+- **段落笔记（中英文阅读都支持）**：正文每段右侧悬停出现一个 ✎（触屏设备常驻半透明），点它给这一段写笔记；记过的段落左侧有强调色竖线，阅读页顶部「本文笔记」面板按正文顺序列出全部笔记，点「第 N 页」跳到对应段落（`?page=N#block-K`）。两个列表页的卡片会在进度徽章后面显示「✎ N 条笔记」，没有笔记的文章不显示。
+  - 笔记锚定的是**分页的全局块序号**，不是页码，所以翻页、改 `pagination.charsPerPage` 都不会让笔记错位；每条笔记另存一段原文片段，原文对不上时面板显示「原文已变动」且不跳转，不会静默定位到错误的段落。
+  - 存储：`data/users/<用户id>/notes.json`，按账号隔离、换设备登录即生效；文件不存在视为没有笔记，老账号无需迁移。删文章时一并清空该篇笔记。
+  - 限额在 `site.ts` 的 `limits`：`maxNotesPerArticle`（单篇最多 500 条）、`maxNoteChars`（单条最多 2000 字，超出截断）。
+- **日记（独立栏目）**：顶栏「日记」→ `/diary`。顶部写作区选日期、填标题（可留空）与正文，保存后按日期倒序排；每条可编辑（内容回填到顶部表单，按钮变「保存修改」，可取消）或删除（走应用内确认框）。
+  - 日期由**浏览器本地时间**生成，服务端只校验 `YYYY-MM-DD` 格式与日期是否真实存在。这样容器跑在 UTC 时，晚上 8 点后写的日记不会记成前一天。
+  - 纯文本：正文按输入时的换行原样显示，不渲染 Markdown，不支持图片或附件。
+  - 存储：`data/users/<用户id>/diary.json`，按账号隔离、只有本人可见；文件不存在视为没有日记，老账号无需迁移。
+  - 限额在 `site.ts` 的 `diary`：`maxEntries`（最多 1000 篇）、`maxEntryChars`（单篇 20000 字）、`maxTitleChars`（标题 80 字）。
 - **长文分页**：阅读页按内容自动分页（默认每页约 3000 字符，整本书不会再挤在一页）。页码用 `?page=N` 表示，可收藏、可分享、浏览器前进后退都正常；顶部有页码列表，右侧「跳至 __ / 总页数」输入页码后回车（或点「跳转」）直接跳到该页，是原生表单、没有 JS 也能用；底部有上一页 / 下一页；电脑上支持键盘 `←` `→` 翻页（光标在页码输入框里时不会误翻页）。超长段落会在句子边界拆开，不会把一段劈成两半，也不会丢内容。每页字符数在 `src/config/site.ts` 的 `pagination.charsPerPage` 里调整。全文翻译按页请求与缓存，「本文生词」侧栏优先显示本页出现的词。
 - **全文翻译**：阅读页右上角「全文翻译」。默认使用 **腾讯交互翻译**（免密钥、国内直连、支持批量、质量好）；可切换 MyMemory（免费但有每日额度，长文易触发 429）或自定义接口。
   - **四种显示方式**（选择会记住，翻页不重置）：**两栏对照**（默认，左英文右中文）／上下对照／只看译文／只看原文。两栏模式下每段是一个「行带」：同一段的英文与中文**首行严格落在同一条水平线上**，段与段之间的分界线也对齐；两列字号、字体一致（0.92em / 行高 1.75），中文不会挤在一起。手机宽度（≤760px）下每段改为英文在上、中文在下的段内成组排布。若某段英文行数多于中文，该段中文下方会自然留白——这是「按段对齐」的必然结果。
@@ -204,7 +222,7 @@ docker ps
 ### 部署注意
 
 - **环境变量优先于 `.env`**：用 `-e` / compose `environment` 设置的 `ADMIN_PASSWORD`、`SESSION_SECRET` 会覆盖配置文件；镜像内不包含 `.env`。
-- 容器以非 root 用户 `app` 运行，实测空闲常驻内存约 **38MB**（`docker stats`，读长文时约 50MB），compose 里限制了 `mem_limit: 1g`，适合 2 核 2G 小服务器。镜像体积约 **799MB**（`readbook:latest`，2026-11-05 实测）。
+- 容器以非 root 用户 `app` 运行，实测常驻内存 **33–59MB**（`docker stats`，取决于是否刚读过长文），compose 里限制了 `mem_limit: 1g`，适合 2 核 2G 小服务器。镜像体积约 **799MB**（`readbook:latest`，2026-11-05 实测）。
 - 镜像内自带健康检查（`/api/health`），`docker ps` 里状态应显示 `healthy`。
 - 换机器迁移：把 `docker volume` 里的数据复制过去，或用 `docker run --rm -v readbook_readbook-data:/data -v ${PWD}:/backup alpine tar czf /backup/readbook-data.tgz -C /data .` 备份。
 
@@ -220,6 +238,10 @@ src/lib/                服务端
   vocab-server.ts       按用户存储生词本（分组模型、导入去重）
   translate.ts          分段翻译 + 按用户缓存（站点默认 / 账号自选两种来源）
   translate-settings.ts 账号级翻译设置读写（data/users/<id>/settings.json）
+  chapters.ts           章节自动识别（从分页块里认章节、映射到页码、定位当前章节）
+  progress.ts           按账号记录阅读进度（data/users/<id>/progress.json）
+  notes.ts              按账号存储段落笔记（data/users/<id>/notes.json）
+  diary.ts              按账号存储日记（data/users/<id>/diary.json，按日期倒序）
   paginate.ts           长文分页（按块切页、超长段落按句拆分）
   seed.ts               新用户欢迎文章
   load-env.ts           读取项目根 .env（测试可用 DSH_TEST_NO_ENV=1 跳过）
@@ -230,14 +252,16 @@ src/scripts/client/     浏览器端
   reader/panel.ts       生词高亮与本文生词侧栏
   reader/lookup.ts      查词请求缓存
   reader/pager.ts       键盘翻页
+  reader/notes.ts       段落笔记的新建 / 编辑 / 删除
   reader/html.ts        转义等小工具
   vocabulary-page.ts    生词本页逻辑
+  diary-page.ts         日记页的新增 / 编辑 / 删除
   admin-page.ts         管理员页逻辑
   vocab-store.ts        生词本数据层（服务端同步 + 旧数据迁移）
   dialog.ts             应用内弹窗（askText 支持自定义空值提示）
   theme / translate / speech / account-menu
-src/pages/              login / register / admin / index（英文列表）/ zh（中文列表）/ import / read/[id] / vocabulary / settings / about
-src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), translate, settings, lookup, health
+src/pages/              login / register / admin / index（英文列表）/ zh（中文列表）/ diary（日记）/ import / read/[id] / vocabulary / settings / about
+src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), translate, settings, notes, diary, lookup, health
 ```
 
 ### 后续 TODO
@@ -257,6 +281,13 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 把「日记」版本重新构建并部署到容器：`docker compose up -d --build` 34s 通过、镜像 `readbook:latest` 799MB、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷 `readbook_readbook-data` 旧数据完好（1 个账号，零迁移）；容器内实测注册临时账号 → 新增日记 → `/diary` 200（「共 1 篇」「周四」「容器内验证」均正确）→ `diary.json` 以 `app` 用户落盘 → 删账号后目录清理干净；空闲内存 57MB | 日记功能需要上线到容器环境，并确认非 root 用户 + 命名卷下新增的 `diary.json` 能正常读写、删账号能连带清理 |
+| 2026-11-05 | 新增「日记」独立栏目：`/diary` 顶部写作区（日期 + 可选标题 + 正文）按日期倒序列出，每条可编辑 / 删除；存储 `data/users/<id>/diary.json`（按账号隔离、老账号零迁移），新增 `/api/diary` 接口（GET/POST/PATCH/DELETE）、`site.ts` 的 `nav` 与 `diary` 配置块；日期由浏览器本地生成、服务端只做格式与真实性校验。顶栏加到 6 项后在 375px 会挤出右边缘（实测溢出 9px），补一条 ≤560px 的导航媒体查询（收字号 / 内边距、允许换行）。无新增依赖，测试 88 → 100 | 需求变更：想加日记功能，单开一个栏目 |
+| 2026-11-05 | 两个列表页（`/` 与 `/zh`）的卡片在进度徽章后加「✎ N 条笔记」：`notes.ts` 新增 `readNoteCounts()` 一次读 `notes.json` 汇总，无笔记的文章不显示徽章，`reader.notes` 关掉时不查询；重建镜像并 `docker compose up -d --build` 部署，容器 `Up (healthy)`，容器内实测中英文列表徽章数量正确、无笔记文章不出徽章（验证文章已删）；测试 87 → 88 | 补上一轮评估时留下的「列表页看不到哪本书有笔记」的缺口 |
+| 2026-11-05 | 把「段落笔记」版本重新构建并部署到容器：`docker compose up -d --build` 通过、镜像 `readbook:latest` 799MB、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷旧数据完好（2 篇文章，含「活着」83745 词）；容器内实测导入中英文各一篇 → 记笔记 / 改笔记 → 阅读页面板与段落竖线正常、中文页仍无点词 → `notes.json` 以 `app` 用户落盘 → 删文章后 `{"version":1,"notes":{}}`（验证文章已删）；空闲内存 59MB | 笔记改动需要上线到容器环境，并确认非 root 用户 + 命名卷下 `notes.json` 可正常读写、删文章能连带清理 |
+| 2026-11-05 | 新增「段落笔记」：正文每段右侧悬停出现 ✎，点它给这一段写笔记；记过的段落左侧加强调色竖线，阅读页顶部「本文笔记」面板按正文顺序列出，点「第 N 页」跳到对应段落（`?page=N#block-K`）。锚点用分页的全局块序号而不是页码，每条另存一段原文片段做校验，对不上时显示「原文已变动」且不跳转。存储 `data/users/<id>/notes.json`（按账号隔离、老账号零迁移、删文章一并清理），新增 `/api/notes` 接口（GET/POST/PATCH/DELETE）、`site.ts` 的 `reader.notes` 开关与 `limits.maxNotesPerArticle` / `maxNoteChars` 限额；中英文阅读都支持，中文仍是纯阅读（不点词、不翻译）。无新增依赖，测试 75 → 87 | 需求变更：想给书本加笔记功能 |
+| 2026-11-05 | 把「章节 + 阅读进度」版本重新构建并部署到容器：`docker compose up -d --build` 通过、镜像 `readbook:latest` 799MB、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷旧数据完好（admin + 老人与海 26866 词）；容器内实测导入 3 章 6 页文章 → 目录「共 3 章」、第 5 页「当前：Chapter 3 The End」、无参数 302 到 `?page=5`、`progress.json` 落盘、DELETE 后进度键清理（测试文章已删）；空闲内存 33MB | 章节与进度改动需要上线到容器环境，并确认非 root 用户 + 命名卷下进度文件可正常读写 |
+| 2026-11-05 | 新增「章节目录 + 阅读进度」：`src/lib/chapters.ts` 自动识别章节（markdown 标题与 `Chapter 1` / `第1章` 等显式标记，只做渲染层，不改分页与翻译缓存）；阅读页加折叠目录、当前章节、「从头开始」，地址没带 `?page` 时按进度自动续读；`src/lib/progress.ts` 按账号存 `data/users/<id>/progress.json`，两个列表页显示「读到 N/M 页」与进度条，删除文章时清理；`site.ts` 新增 `reader` 四个开关；页码链接统一带 `?page=`（否则回第 1 页会被自动续读弹回）；测试 62 → 75 | 需求变更：要自动识别章节，并记住每篇读到哪一页 |
 | 2026-11-05 | 把「中文阅读」版本重新构建并部署到容器：`docker compose up -d --build` 通过、镜像 `readbook:latest` 799MB、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷旧数据完好（admin + 老人与海，老文章无 `lang` 字段按英文显示）；容器内实测 `/zh` 返回 200、导入中文文章 → 阅读页无点词/生词侧栏 → 删除，全链路正常（测试文章已清理）；空闲内存 38MB | 中文阅读改动需要上线到容器环境，并确认老数据零迁移、非 root 用户 + 命名卷下中文文章可正常读写 |
 | 2026-11-05 | 新增「中文阅读」：`ArticleRecord` 加可选 `lang`（`'en' \| 'zh'`，老数据缺省按英文，无迁移），导入页加语言单选（`/import?lang=zh` 可预选），新增中文列表页 `/zh`，首页只列英文；阅读页按语言分支——中文不渲染可点单词、不显示全文翻译与本文生词侧栏、不加载点词脚本，字数按汉字计、分页 1200 字/页（`siteConfig.zhReader`）；新账号欢迎文章改为英文 + 中文各一篇；测试 61 → 62 条 | 需求变更：想加中文阅读，不需要翻译，和英文阅读分开 |
 | 2026-11-05 | 用新代码重建镜像并重新部署：`docker compose up -d --build` 1m11s 通过（词库 30001 条，用本地 `data/ecdict.csv` 离线生成）、容器 `Up (healthy)`、`/api/health` 正常；容器内实测 `/settings` 页面与 `/api/settings` 读写可用，设置落到命名卷 `/app/data/users/<id>/settings.json`；命名卷旧数据（admin + 老人与海）完好；镜像 799MB、空闲内存 33MB | 翻译设置改动需要上线到容器环境，并确认新接口在非 root 用户 + 命名卷下读写正常 |

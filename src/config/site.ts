@@ -33,6 +33,7 @@ export const siteConfig = {
   nav: [
     { label: '英文阅读', href: '/' },
     { label: '中文阅读', href: '/zh' },
+    { label: '日记', href: '/diary' },
     { label: '导入', href: '/import' },
     { label: '生词本', href: '/vocabulary' },
     { label: '关于我', href: '/about' },
@@ -78,6 +79,10 @@ export const siteConfig = {
     minFreeDiskBytes: 500 * 1024 * 1024,
     /** 阅读页一次最多高亮的生词数（性能保护） */
     highlightLimit: 500,
+    /** 单篇文章最多存多少条笔记 */
+    maxNotesPerArticle: 500,
+    /** 单条笔记最多多少字符（超出部分截断） */
+    maxNoteChars: 2000,
   },
 
   /** 账号体系（用户名 + 密码，数据按用户隔离） */
@@ -120,6 +125,44 @@ export const siteConfig = {
     label: '中文阅读',
     /** 中文文章每页约多少字 */
     charsPerPage: 1200,
+  },
+
+  /**
+   * 日记（独立栏目，与阅读、生词本互不干扰）
+   * 数据按账号存在 data/users/<用户id>/diary.json，只有本人可见；
+   * 日期由浏览器按本地时区生成（服务端只校验格式），避免容器跑 UTC 时写串日期。
+   */
+  diary: {
+    /** 栏目名（导航与页面标题） */
+    label: '日记',
+    /** 最多存多少篇，超过后拒绝新增并提示先删旧的 */
+    maxEntries: 1000,
+    /** 单篇正文最多多少字符（超出部分截断） */
+    maxEntryChars: 20000,
+    /** 标题最多多少字符（可留空） */
+    maxTitleChars: 80,
+  },
+
+  /**
+   * 章节、阅读进度与笔记
+   * 章节在渲染时从正文里自动识别（markdown 标题 + `Chapter 1` / `第1章` 这类显式标记），
+   * 不写回文章、不改分页，所以页码与翻译缓存都不受影响；
+   * 进度按账号存在 data/users/<用户id>/progress.json，换设备登录即生效。
+   */
+  reader: {
+    /** 是否自动识别章节并在阅读页显示目录 */
+    chapters: true,
+    /** 是否记住每篇文章读到第几页 */
+    rememberProgress: true,
+    /** 打开文章（地址里没带 ?page）时是否自动跳到上次读到的页；关掉则只在列表页显示进度 */
+    autoResume: true,
+    /** 章节标题最大长度：超过这个长度视为正文，避免整段被当成章节 */
+    chapterTitleMaxLen: 80,
+    /**
+     * 是否启用「本文笔记」（段落锚点 + 面板），中英文阅读都适用。
+     * 关掉后阅读页不再显示笔记入口，已存的笔记仍留在 data/users/<用户id>/notes.json 里。
+     */
+    notes: true,
   },
 
   /**

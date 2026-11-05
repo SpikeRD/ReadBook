@@ -10,7 +10,8 @@ export interface PagerInfo {
 export function initKeyboardPaging(info: PagerInfo): void {
   if (info.totalPages <= 1) return;
 
-  const href = (n: number) => `/read/${info.articleId}${n > 1 ? `?page=${n}` : ''}`;
+  // 页码一律带 ?page=：第 1 页也带上，否则回到无参数地址会被「自动续读」弹回上次页
+  const href = (n: number) => `/read/${info.articleId}?page=${n}`;
 
   document.addEventListener('keydown', (event) => {
     const target = event.target as HTMLElement | null;

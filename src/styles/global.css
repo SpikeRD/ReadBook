@@ -480,6 +480,132 @@ textarea:focus {
   margin-top: 0.35em;
 }
 
+/* ── 章节目录与阅读进度 ── */
+.chapter-nav {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 0 0 14px;
+}
+
+.chapter-nav > summary {
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chapter-nav-label {
+  color: var(--text);
+}
+
+.chapter-now {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.chapter-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.chapter-list li a {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  font-size: 14px;
+}
+
+.chapter-list li:last-child a {
+  border-bottom: 0;
+}
+
+.chapter-list li a:hover {
+  background: var(--surface-soft);
+  text-decoration: none;
+}
+
+.chapter-list li.active a {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chapter-no {
+  flex: none;
+  width: 2.2em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter-list li.active .chapter-no {
+  color: var(--accent);
+}
+
+.chapter-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chapter-page {
+  flex: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* 章节标题：markdown 标题块，以及正文里识别出的 Chapter 1 / 第1章 这类行 */
+.chapter-block p {
+  margin-top: 1.2em;
+  font-weight: 700;
+  font-size: 1.06em;
+  color: var(--text);
+}
+
+.chapter-block:first-child p {
+  margin-top: 0;
+}
+
+/* 列表页的阅读进度 */
+.progress-badge {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+/* 列表页的笔记条数 */
+.note-badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.progress-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 .zh-block {
   font-family: var(--font);
   font-size: 15.5px;
@@ -1618,5 +1744,292 @@ html[data-zh-mask='1'] .zh-block.zh-revealed {
     border-left: none;
     padding: 6px 0 1.1em;
     border-top: 1px dashed var(--border);
+  }
+}
+
+/* ── 本文笔记（段落锚点 + 面板） ── */
+.reader-block {
+  position: relative;
+  scroll-margin-top: 16px;
+  /* 右侧留出「记笔记」按钮的位置，避免悬停时按钮压住首行末尾的文字 */
+  padding-right: 28px;
+}
+
+/* 段落右侧的「记笔记」按钮：桌面端悬停才出现，触屏设备常驻半透明 */
+.note-add {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.reader-block:hover .note-add,
+.note-add:focus-visible {
+  opacity: 1;
+}
+
+.note-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (hover: none) {
+  .note-add {
+    opacity: 0.45;
+  }
+}
+
+/* 记过笔记的段落：左侧竖线，扫一眼就知道哪段写过 */
+.reader-block.has-note {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  margin-left: -15px;
+}
+
+.reader-block.has-note .note-add {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.note-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 0 0 14px;
+}
+
+.note-panel > summary {
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.note-panel-label {
+  color: var(--text);
+}
+
+.note-panel-hint {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.note-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.note-item {
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-item:last-child {
+  border-bottom: 0;
+}
+
+.note-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.note-jump {
+  flex: none;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.note-jump:hover {
+  text-decoration: underline;
+}
+
+.note-jump.is-orphan {
+  color: var(--danger);
+  font-weight: 400;
+}
+
+.note-quote {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-en);
+}
+
+.note-body {
+  margin-top: 6px;
+  font-size: 14.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.note-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 笔记编辑框：复用 .dlg-input 的边框与配色，只压矮高度 */
+.note-editor-input {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.note-editor-count {
+  margin: -4px 0 8px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.note-editor-count.is-over {
+  color: var(--danger);
+}
+
+/* 手机端：留白与按钮都收一点，正文不至于被压得太窄 */
+@media (max-width: 560px) {
+  .reader-block {
+    padding-right: 24px;
+  }
+
+  .note-add {
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+}
+
+/* ── 日记 ── */
+/* 顶部写作区：日期与标题一行，正文一行；窄屏自动折行 */
+.diary-compose-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* date 控件不在上面的通用 input 规则里，这里单独补齐边框与内边距 */
+.diary-compose-head input[type='date'] {
+  width: auto;
+  min-width: 150px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--text);
+}
+
+.diary-compose-head input[type='date']:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.diary-compose-head input[type='text'] {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.diary-compose textarea {
+  min-height: 180px;
+}
+
+.diary-counter {
+  margin: 6px 0 0;
+  text-align: right;
+}
+
+.diary-counter.is-over {
+  color: var(--danger);
+}
+
+.diary-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.diary-entry-date {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.diary-entry-week {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.diary-entry-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* 正文按输入时的换行原样显示（纯文本，不渲染 Markdown） */
+.diary-entry-body {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diary-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.diary-entry-updated {
+  margin-left: auto;
+}
+
+/* 顶栏加到 6 项后，375px 手机宽度会把最后一项挤出右边缘
+   （实测：6 项 + 间距共 384px，可视宽度 375px，超出 9px 被 overflow-x 裁掉）。
+   窄屏下：字号与内边距收一点、间距收窄，并让导航独占一行且允许换行，
+   这样 375px 能一行放下，320px 这类更窄的屏改为折成两行，而不是被裁掉。
+   桌面端（>560px）完全不受影响。 */
+@media (max-width: 560px) {
+  .nav-links {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 2px;
+    justify-content: flex-start;
+  }
+
+  .nav-links a {
+    padding: 6px 8px;
+    font-size: 13px;
   }
 }

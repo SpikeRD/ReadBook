@@ -6,6 +6,8 @@ dist
 .env
 .env.*
 !.env.example
+# 桌面版是独立的 npm 包（Electron + 打包产物，含 400MB node_modules），镜像里用不到
+desktop
 data/dict.db
 data/index.json
 data/articles

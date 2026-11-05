@@ -22,6 +22,12 @@
 
 ## 类型检查
 - `npm run check` 曾经因 `tsconfig` 把 `desktop/runtime/app/dist/**` 拉进检查而 V8 abort。`exclude` 必须保留 `desktop`；加新目录时先想清楚是否含打包产物。
+- 测试用 `node --test` 直接 import 源码时，import 路径**必须带 `.ts` 后缀**（Node ESM 不补扩展名，Vite 才补）。`src/lib` 下一直是这么写的。
+
+## 打包（Docker / 桌面版）
+- `.dockerignore` 已排除 `desktop`（它是独立 npm 包，413MB node_modules 不该进构建上下文）。
+- 桌面版重打包：`electron-builder` 直接输出到 `release/` 会因 `release/win-unpacked` 删不掉而失败（沙箱 safe-delete 拦截），用 `--config.directories.output=build-tmp` 再 `cp` 回 `release/`。
+- 验证 exe 不必点 GUI：直接 `node desktop/runtime/app/dist/server/server.mjs`（配 `DATA_DIR` + `runtime/seed/dict.db`）就能证明包内服务端可用。
 
 ## 界面约定
 - **顶栏 `siteConfig.nav` 加项必须实测窄屏**：`.nav-links` 按 max-content 撑开、父级不压缩，6 项在 375px 就会挤出右边缘被 `overflow-x:hidden` 裁掉（不会横向滚动，只是看不见）。`global.css` 末尾已有一条 `@media (max-width:560px)` 收字号/内边距 + `flex:1 1 100%` 兜底，再加项要重新量 375px 与 320px。

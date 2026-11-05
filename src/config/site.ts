@@ -170,6 +170,13 @@ export const siteConfig = {
   /** 阅读页默认发音语言 */
   speechLang: 'en-US',
 
+  /**
+   * 发音兜底：浏览器语音合成不可用（没有英文音色 / 合成失败 / 环境不支持）时，
+   * 改用词典音源播放单词读音。{word} 为占位符。
+   * 想关掉就把它设为空字符串。
+   */
+  speechFallbackUrl: 'https://dict.youdao.com/dictvoice?audio={word}&type=2',
+
   /** 长文分页：一篇文章按内容切成多页，避免"一本书只有一页" */
   pagination: {
     /** 每页约多少字符（英文约 3000 字符≈500 词；手机端排版约需翻 2-3 屏） */

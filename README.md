@@ -46,7 +46,7 @@ npm run dev
 | `npm run start` | 以生产模式启动（先自动 `prepare`，再跑 `dist/server/entry.mjs`），同样监听 `http://127.0.0.1:4321` |
 | `npm run preview` | 与 `npm run start` 相同（方便记忆） |
 | `npm run check` | Astro / TypeScript 类型检查 |
-| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 107 条全通过） |
+| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 110 条全通过） |
 | `npm run dict:rebuild` | 重建本地词库 `data/dict.db`（已有 ECDICT 数据源时不再下载） |
 | `npm run dict:fetch` | 下载 ECDICT 并生成 30000 词词库（约 63MB 下载） |
 
@@ -116,6 +116,7 @@ npm run start
   完全离线时也可以用内置的约 460 词词表兜底（删除 `data/dict.db` 后启动会自动重建基础词库）。
   - **查不到的词走在线兜底**：本地词库未命中时，服务端会请求内置的在线词典（有道 jsonapi，返回中文释义与音标），结果标成 `source: "online"`；仍查不到才提示「未收录」并给在线词典链接。
   - 换服务商：`.env` 设 `ONLINE_DICT_URL`（含 `{word}` 占位，返回 `{translation}` / `{data:{translation}}` 任一形状即可）；关掉兜底设 `ONLINE_DICT_URL=off`。在线结果只缓存命中的词，网络抖动不会把词永久记成「未收录」。
+- **发音**：优先浏览器语音合成（Windows / macOS 自带英文音色，离线可用）；浏览器**没有英文音色**或合成报错时，自动退回在线词典音源（`site.ts` 的 `speechFallbackUrl`，默认有道 dictvoice，需联网），两路都不可用才提示。Linux 上没装 speech-dispatcher 的机器现在也能点读。
 - **背景配色**：顶栏色块可切换 **白天 / 黑夜 / 护眼（豆沙绿）/ 暖黄（纸张）/ 高对比** 五种主题，首帧生效、刷新不闪白；选择保存在本机浏览器（这是唯一保存在本地的偏好，不影响数据）。
 - **章节目录与续读**：阅读页会自动识别章节——markdown 标题（`# 标题`），以及正文里的 `Chapter 1` / `CHAPTER IV` / `Part II` / `Book 3` / `Prologue` / `第1章` / `第十二回` / `楔子` 这类**显式标记**。识别结果只做渲染层展示：顶部「目录」折叠面板（带当前章节与每章页码）、章节标题加粗。它**不参与分页**，所以页码、旧书签和翻译缓存都不受影响，老文章也不用迁移（直接在已保存的 blocks 上识别）。刻意不把「全大写短行」当章节，否则书籍扉页的 `THE OLD MAN` / `THE SEA` 会被拆成一堆假章节。
   - 阅读进度按账号存在 `data/users/<用户id>/progress.json`，每翻一页记录一次（同一页重复打开不重复写）。地址里没带 `?page` 时自动跳到上次读到的页；`?page=1`（或页面左上角「从头开始」按钮）表示从头重读。
@@ -268,15 +269,14 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 ### 后续 TODO
 
-1. 发音音源兜底：目前只用浏览器 Web Speech API（Windows 自带语音可用）。
-2. 文章分页 / 搜索：文章数量变大后给首页加搜索与分页。
-3. 阅读进度与「已掌握」的复习提醒（需求明确本轮不做遗忘曲线）。
-4. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见部署手册。
-5. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`。
-6. 翻译质量增强：默认腾讯翻译为网页端接口，长文可出现机翻腔；可接入 DeepL / 百度 / 腾讯正式 API。
-7. 账号管理增强：目前没有邀请码、管理员账号不能被删除、也没有「停用账号」状态，可按需补。
-8. 词库扩充：前 3 万词已覆盖日常阅读，专业术语可按需提高 `--limit`。
-9. 两栏对照的「逐行对齐」：当前保证每段首行与段边界对齐，若英文段行数多于中文会自然留白；如需要逐行严格对应，要改译文行数策略。
+1. 文章分页 / 搜索：文章数量变大后给首页加搜索与分页。
+2. 阅读进度与「已掌握」的复习提醒（需求明确本轮不做遗忘曲线）。
+3. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见部署手册。
+4. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`。
+5. 翻译质量增强：默认腾讯翻译为网页端接口，长文可出现机翻腔；可接入 DeepL / 百度 / 腾讯正式 API。
+6. 账号管理增强：目前没有邀请码、管理员账号不能被删除、也没有「停用账号」状态，可按需补。
+7. 词库扩充：前 3 万词已覆盖日常阅读，专业术语可按需提高 `--limit`。
+8. 两栏对照的「逐行对齐」：当前保证每段首行与段边界对齐，若英文段行数多于中文会自然留白；如需要逐行严格对应，要改译文行数策略。
 
 ## 五、桌面版（Windows 单文件 exe）
 
@@ -307,6 +307,7 @@ npm run build:exe:fast   # 只改了 main.js / ui 时用，跳过 astro build
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 补齐发音兜底：`speech.ts` 在「没有英文音色 / 合成报错 / 环境不支持」时自动改用词典音源（`site.ts` 的 `speechFallbackUrl`，默认有道 dictvoice），两路都失败才提示；新增 `tests/speech.test.mjs` 3 条，测试 107 → 110 | 原实现只有 Web Speech，Linux 或没装英文语音包的浏览器点单词毫无反应，需求里的「单词语音兜底」一直空着 |
 | 2026-11-05 | 安全与文档收口：① `git rm --cached` 移除 `data/users.json`、`data/users/**`、`data/ecdict.csv`（磁盘文件保留，继续被 `.gitignore` 覆盖）；② `ADMIN_PASSWORD` 不再有 `admin` 默认值（留空 = 首个注册者成为站长），`prepare` 在生成 `.env` 时自动写入随机 `SESSION_SECRET`，compose 的 `SESSION_SECRET` 改为必填、缺失直接报错；③ 新增 `.nvmrc`（22）；④ 修好 `npm run check`（`tsconfig` 排除 `desktop`，此前会把 esbuild 压缩产物拉进检查并 OOM abort），实测 83 文件 0 错 0 警告；⑤ 在线词典兜底默认接通（有道 jsonapi，未命中才提示「未收录」），`ONLINE_DICT_URL` 可换源或设 `off` 关闭；⑥ 测试 100 → 107 | 审计发现真实用户数据被提交进版本库、类型检查崩溃、默认弱口令，以及需求文档仍停留在口令方案 |
 | 2026-11-05 | 新增《打包教程.md》：桌面版 exe 的完整打包流程（前置条件、三步命令、四个构建命令的区别、目录结构、esbuild 单文件 + banner 原理、Electron 内置 Node 跑服务的验证方法、日常改动对照表、自定义端口/图标/版本/安装版、自验清单、11 条常见报错、与 Docker 版的数据迁移、安全提醒）；README 与部署手册补指向链接，需求确认单补文档清单 | 打包步骤散落在 README 与部署手册里，且踩过的坑（npm 源、banner、文件占用）没地方沉淀，下次重新打包会重复踩 |
 | 2026-11-05 | 新增桌面版：`desktop/` 下用 Electron 做启动器（端口 / 局域网开关 / 数据目录 / 管理员账号密码 / 自动开浏览器 / 启动·停止 / 实时日志），`scripts/build-runtime.mjs` 用 esbuild 把服务端打成单文件（1.3MB）并只带 `dist/client` 与词库种子，运行时 7.2MB；`electron-builder` 出 `ReadBook-1.0.0-portable.exe` 92MB。实测：全新安装默认端口 4321、数据目录 `%APPDATA%\ReadBook\data`、首次启动自动铺词库；改端口 4400 → 启动 → `/api/health` 200（`dict.words=30001`）、`/login` 200、CSS 200 → 停止后端口不再响应；关窗口会先停服务。Electron 38.8.6 自带 Node 22.22 支持 `node:sqlite`，无需另带 node.exe | 需求变更：想要一个双击即用、能设端口再启停服务的 exe，不想装 Docker |

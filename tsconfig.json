@@ -1,7 +1,8 @@
 {
   "extends": "astro/tsconfigs/strict",
   "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist", "node_modules"],
+  "// exclude": "desktop 是独立的 npm 包（Electron 启动器 + esbuild 打包产物），不属于站点构建；不排除它会让 astro check 去解析 desktop/runtime 里的压缩 bundle，直接 OOM abort。",
+  "exclude": ["dist", "node_modules", "desktop"],
   "compilerOptions": {
     "strictNullChecks": true,
     "types": ["node"],

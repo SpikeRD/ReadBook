@@ -10,6 +10,7 @@
 // 每个新注册的用户会在注册时自动获得一篇欢迎文章（见 src/lib/seed.ts）。
 
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -38,8 +39,16 @@ async function ensureEnv() {
   const envFile = path.join(root, '.env');
   const example = path.join(root, '.env.example');
   if (existsSync(envFile) || !existsSync(example)) return;
-  await fs.copyFile(example, envFile);
-  log('已根据 .env.example 创建 .env');
+  // 不能直接照抄示例文件：里面的 SESSION_SECRET 是空的，空值会退回代码里的公开默认串，
+  // 等于所有人的会话 Cookie 都能被伪造。这里复制时顺手生成一个随机密钥。
+  const text = await fs.readFile(example, 'utf8');
+  const secret = randomBytes(36).toString('base64url');
+  const filled = text.replace(/^SESSION_SECRET=\s*$/m, `SESSION_SECRET=${secret}`);
+  await fs.writeFile(envFile, filled, 'utf8');
+  log('已根据 .env.example 创建 .env（SESSION_SECRET 已随机生成）');
+  if (/^ADMIN_PASSWORD=\s*$/m.test(filled)) {
+    log('提示：ADMIN_PASSWORD 为空，不启用配置管理员；第一个注册的账号会成为站长');
+  }
 }
 
 async function ensureDirs() {

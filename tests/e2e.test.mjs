@@ -59,7 +59,8 @@ before(async () => {
       HOST: '127.0.0.1',
       DATA_DIR: tmpDir,
       SESSION_SECRET: 'test-secret',
-      ONLINE_DICT_URL: '',
+      // 关掉在线词典兜底：端到端测试不依赖外网，也让「未收录」断言保持确定
+      ONLINE_DICT_URL: 'off',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

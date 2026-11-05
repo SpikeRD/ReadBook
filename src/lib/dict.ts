@@ -90,27 +90,101 @@ function openDb(): { db: DatabaseSync; count: number } {
   return { db, count };
 }
 
+/**
+ * 内置的在线兜底：有道词典的公开 JSON 接口（免密钥、直接给中文释义与音标）。
+ * 用 {word} 占位，和自定义接口保持同一种模板写法。
+ * 想关掉：.env 里设 ONLINE_DICT_URL=off。
+ *
+ * 选有道而不是纯翻译接口：翻译接口对单个生僻词经常给出错译
+ * （实测 defenestration 被译成「排便」），词典接口有词条与词性，质量更可靠。
+ */
+const DEFAULT_ONLINE_DICT_URL = 'https://dict.youdao.com/jsonapi?q={word}';
+
+/** 译文是不是「没翻出来」：原样返回、或者返回的仍是纯英文 */
+function isUselessTranslation(word: string, text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (t.toLowerCase() === word.toLowerCase()) return true;
+  return !/[\u4e00-\u9fff]/.test(t) && /^[A-Za-z\s'’.,-]+$/.test(t);
+}
+
+/** 有道 jsonapi：词条释义在 ec.word[0].trs[].tr[].l.i，音标在 usphone/ukphone */
+function parseYoudao(word: string, data: Record<string, unknown>): string | null {
+  const ec = data.ec as { word?: Array<Record<string, unknown>> } | undefined;
+  const entry = ec?.word?.[0];
+  const lines: string[] = [];
+  const trsList = (entry?.trs as Array<{ tr?: Array<{ l?: { i?: unknown } }> }> | undefined) ?? [];
+  for (const trs of trsList) {
+    for (const tr of trs?.tr ?? []) {
+      const i = tr?.l?.i;
+      if (Array.isArray(i)) lines.push(...i.map((x) => String(x)).filter(Boolean));
+      else if (typeof i === 'string' && i) lines.push(i);
+    }
+  }
+  let translation = lines.join('\n').trim();
+  if (!translation) {
+    // 没有 ec 词条时退回网络释义（生僻词常见）
+    const web = data.web_trans as
+      | { 'web-translation'?: Array<{ trans?: Array<{ value?: string }> }> }
+      | undefined;
+    const value = web?.['web-translation']?.[0]?.trans?.[0]?.value;
+    if (typeof value === 'string') translation = value.trim();
+  }
+  if (isUselessTranslation(word, translation)) return null;
+  return translation;
+}
+
+function youdaoPhonetic(data: Record<string, unknown>): string {
+  const ec = data.ec as { word?: Array<Record<string, unknown>> } | undefined;
+  const entry = ec?.word?.[0];
+  const us = entry?.usphone;
+  const uk = entry?.ukphone;
+  return typeof us === 'string' && us ? us : typeof uk === 'string' ? uk : '';
+}
+
 async function onlineLookup(word: string): Promise<LookupResult | null> {
-  const template = readEnv().onlineDictUrl;
-  if (!template) return null;
+  const configured = readEnv().onlineDictUrl.trim();
+  if (configured.toLowerCase() === 'off') return null;
+  const isDefault = configured === '';
+  const template = configured || DEFAULT_ONLINE_DICT_URL;
   const url = template.replace('{word}', encodeURIComponent(word));
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; ReadBook/1.0)' },
+    });
     clearTimeout(timer);
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, unknown>;
-    // 兼容常见返回形状：{ translation, phonetic, definition } 或 { data: {...} }
-    const raw = (data.data && typeof data.data === 'object' ? data.data : data) as Record<string, unknown>;
-    const translation = String(raw.translation ?? raw.zh ?? raw.def ?? '');
+
+    let translation = '';
+    let phonetic = '';
+    if (isDefault) {
+      translation = parseYoudao(word, data) ?? '';
+      phonetic = youdaoPhonetic(data);
+    } else {
+      // 自定义模板：兼容 { translation, phonetic, definition } / { data: {...} } / { responseData: {...} }
+      const raw = (
+        data.data && typeof data.data === 'object'
+          ? data.data
+          : data.responseData && typeof data.responseData === 'object'
+            ? data.responseData
+            : data
+      ) as Record<string, unknown>;
+      translation = String(raw.translatedText ?? raw.translation ?? raw.zh ?? raw.def ?? '');
+      if (isUselessTranslation(word, translation)) translation = '';
+      phonetic = String(raw.phonetic ?? '');
+    }
     if (!translation) return null;
+
     return {
       word,
       matched: word,
-      phonetic: String(raw.phonetic ?? ''),
+      phonetic,
       translation,
-      definition: String(raw.definition ?? ''),
+      definition: '',
       tag: 'online',
       source: 'online',
       found: true,
@@ -161,8 +235,12 @@ export async function lookupWord(input: string): Promise<LookupResult> {
       externalUrl: `https://www.iciba.com/word?w=${encodeURIComponent(word)}`,
     };
 
-  if (memo.size > MEMO_LIMIT) memo.clear();
-  memo.set(key, final);
+  // 只缓存查到的词：网络抖动导致的「未收录」不该被记住，
+  // 否则这个词到进程重启前都不会再尝试在线兜底。
+  if (final.found) {
+    if (memo.size > MEMO_LIMIT) memo.clear();
+    memo.set(key, final);
+  }
   return final;
 }
 

@@ -29,7 +29,9 @@ function num(value: string | undefined, fallback: number): number {
 export function readEnv(): AppEnv {
   // 注意：必须在读取时才判断。src/lib/load-env 负责把 .env 载入 process.env，
   // 如果在模块顶层取值，加载顺序不同就会拿到空值（曾经因此导致「默认密码」告警永远不显示）。
-  const adminPassword = process.env.ADMIN_PASSWORD ?? 'admin';
+  // 不给 ADMIN_PASSWORD 设弱默认值：没配就是没配，站点会走「首个注册者成为站长」的兜底，
+  // 而不是悄悄留一个 admin/admin 给所有人登录。
+  const adminPassword = process.env.ADMIN_PASSWORD ?? '';
   return {
     secret: process.env.SESSION_SECRET || 'dev-only-secret-please-change-me',
     dataDir: process.env.DATA_DIR || 'data',

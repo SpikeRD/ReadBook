@@ -46,7 +46,7 @@ npm run dev
 | `npm run start` | 以生产模式启动（先自动 `prepare`，再跑 `dist/server/entry.mjs`），同样监听 `http://127.0.0.1:4321` |
 | `npm run preview` | 与 `npm run start` 相同（方便记忆） |
 | `npm run check` | Astro / TypeScript 类型检查 |
-| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 100 条全通过） |
+| `npm test` | 单元测试 + 端到端测试（会自动启动临时服务，不影响本地 `data/`；结果应为 107 条全通过） |
 | `npm run dict:rebuild` | 重建本地词库 `data/dict.db`（已有 ECDICT 数据源时不再下载） |
 | `npm run dict:fetch` | 下载 ECDICT 并生成 30000 词词库（约 63MB 下载） |
 
@@ -88,7 +88,7 @@ npm run start
 ## 说明（不在三段之内，供参考）
 
 - **账号体系**：用户名 + 密码登录，密码用 scrypt 加盐哈希存储；会话是 HMAC 签名的 HttpOnly Cookie（默认 30 天）。改密码后其他设备的旧会话立即失效。顶栏右侧头像菜单可「修改密码 / 退出登录」。自助注册开关与账号数量上限在 `src/config/site.ts` 的 `auth` 里。
-- **管理员**：凭据由 `.env`（本机运行）或环境变量（Docker）里的 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 控制（默认 `admin` / `admin`）。用管理员账号登录后，顶栏出现「账号管理」（或直接访问 `/admin`），可以：
+- **管理员**：凭据由 `.env`（本机运行）或环境变量（Docker）里的 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 控制。**默认不预置弱口令**：`ADMIN_PASSWORD` 留空时站点不启用配置的管理员，第一个注册的人自动成为站长；填了值就用该密码登录（首次登录会自动落一条 `role=admin` 记录）。用管理员账号登录后，顶栏出现「账号管理」（或直接访问 `/admin`），可以：
   - 查看全部账号（角色、文章数、生词数、注册时间、最近登录）与全站统计
   - 新建账号（密码留空自动生成，创建后弹窗显示一次）
   - 重置普通用户密码（自动生成新密码并显示，对方旧会话失效）
@@ -114,6 +114,8 @@ npm run start
   npm run dict:rebuild                          # 已有 data/ecdict.csv 时只重新生成，不再下载
   ```
   完全离线时也可以用内置的约 460 词词表兜底（删除 `data/dict.db` 后启动会自动重建基础词库）。
+  - **查不到的词走在线兜底**：本地词库未命中时，服务端会请求内置的在线词典（有道 jsonapi，返回中文释义与音标），结果标成 `source: "online"`；仍查不到才提示「未收录」并给在线词典链接。
+  - 换服务商：`.env` 设 `ONLINE_DICT_URL`（含 `{word}` 占位，返回 `{translation}` / `{data:{translation}}` 任一形状即可）；关掉兜底设 `ONLINE_DICT_URL=off`。在线结果只缓存命中的词，网络抖动不会把词永久记成「未收录」。
 - **背景配色**：顶栏色块可切换 **白天 / 黑夜 / 护眼（豆沙绿）/ 暖黄（纸张）/ 高对比** 五种主题，首帧生效、刷新不闪白；选择保存在本机浏览器（这是唯一保存在本地的偏好，不影响数据）。
 - **章节目录与续读**：阅读页会自动识别章节——markdown 标题（`# 标题`），以及正文里的 `Chapter 1` / `CHAPTER IV` / `Part II` / `Book 3` / `Prologue` / `第1章` / `第十二回` / `楔子` 这类**显式标记**。识别结果只做渲染层展示：顶部「目录」折叠面板（带当前章节与每章页码）、章节标题加粗。它**不参与分页**，所以页码、旧书签和翻译缓存都不受影响，老文章也不用迁移（直接在已保存的 blocks 上识别）。刻意不把「全大写短行」当章节，否则书籍扉页的 `THE OLD MAN` / `THE SEA` 会被拆成一堆假章节。
   - 阅读进度按账号存在 `data/users/<用户id>/progress.json`，每翻一页记录一次（同一页重复打开不重复写）。地址里没带 `?page` 时自动跳到上次读到的页；`?page=1`（或页面左上角「从头开始」按钮）表示从头重读。
@@ -166,9 +168,9 @@ docker compose version  # 需要 v2（命令是 docker compose，不是老的 do
 ```powershell
 cd E:\Desktop\DeepSeekHarness\ReadBook
 
-# 设置关键变量（不设置则用默认值：admin/admin，强烈建议改掉）
+# 设置关键变量（SESSION_SECRET 必填：compose 里没有弱默认值，缺失会直接报错）
 $env:SESSION_SECRET = "请换成随机长字符串"
-$env:ADMIN_PASSWORD = "你的管理员密码"
+$env:ADMIN_PASSWORD = "你的管理员密码"   # 留空则第一个注册的人成为站长
 
 docker compose up -d --build
 docker compose ps
@@ -266,16 +268,15 @@ src/pages/api/          auth/*, admin/accounts, articles, vocabulary(+import), t
 
 ### 后续 TODO
 
-1. 在线词典兜底：在 `.env` 配置 `ONLINE_DICT_URL`（含 `{word}` 占位），未收录词自动走在线接口。
-2. 发音音源兜底：目前只用浏览器 Web Speech API（Windows 自带语音可用）。
-3. 文章分页 / 搜索：文章数量变大后给首页加搜索与分页。
-4. 阅读进度与「已掌握」的复习提醒（需求明确本轮不做遗忘曲线）。
-5. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见部署手册。
-6. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`。
-7. 翻译质量增强：MyMemory 为免费众包记忆库，长文可出现机翻腔；可接入 DeepL / 百度 / 腾讯正式 API。
-8. 账号管理增强：目前没有邀请码、管理员账号不能被删除、也没有「停用账号」状态，可按需补。
-9. 词库扩充：前 3 万词已覆盖日常阅读，专业术语可按需提高 `--limit`。
-10. 两栏对照的「逐行对齐」：当前保证每段首行与段边界对齐，若英文段行数多于中文会自然留白；如需要逐行严格对应，要改译文行数策略。
+1. 发音音源兜底：目前只用浏览器 Web Speech API（Windows 自带语音可用）。
+2. 文章分页 / 搜索：文章数量变大后给首页加搜索与分页。
+3. 阅读进度与「已掌握」的复习提醒（需求明确本轮不做遗忘曲线）。
+4. 备份策略：`data/` 目录定时打包（含 `users.json` 与各用户目录），Docker 用命名卷备份，步骤见部署手册。
+5. 图片：`public/` 下放图即可；缺失时自动回退到 `/placeholder.svg`。
+6. 翻译质量增强：默认腾讯翻译为网页端接口，长文可出现机翻腔；可接入 DeepL / 百度 / 腾讯正式 API。
+7. 账号管理增强：目前没有邀请码、管理员账号不能被删除、也没有「停用账号」状态，可按需补。
+8. 词库扩充：前 3 万词已覆盖日常阅读，专业术语可按需提高 `--limit`。
+9. 两栏对照的「逐行对齐」：当前保证每段首行与段边界对齐，若英文段行数多于中文会自然留白；如需要逐行严格对应，要改译文行数策略。
 
 ## 五、桌面版（Windows 单文件 exe）
 
@@ -306,6 +307,7 @@ npm run build:exe:fast   # 只改了 main.js / ui 时用，跳过 astro build
 
 | 日期 | 改了什么 | 为什么 |
 |---|---|---|
+| 2026-11-05 | 安全与文档收口：① `git rm --cached` 移除 `data/users.json`、`data/users/**`、`data/ecdict.csv`（磁盘文件保留，继续被 `.gitignore` 覆盖）；② `ADMIN_PASSWORD` 不再有 `admin` 默认值（留空 = 首个注册者成为站长），`prepare` 在生成 `.env` 时自动写入随机 `SESSION_SECRET`，compose 的 `SESSION_SECRET` 改为必填、缺失直接报错；③ 新增 `.nvmrc`（22）；④ 修好 `npm run check`（`tsconfig` 排除 `desktop`，此前会把 esbuild 压缩产物拉进检查并 OOM abort），实测 83 文件 0 错 0 警告；⑤ 在线词典兜底默认接通（有道 jsonapi，未命中才提示「未收录」），`ONLINE_DICT_URL` 可换源或设 `off` 关闭；⑥ 测试 100 → 107 | 审计发现真实用户数据被提交进版本库、类型检查崩溃、默认弱口令，以及需求文档仍停留在口令方案 |
 | 2026-11-05 | 新增《打包教程.md》：桌面版 exe 的完整打包流程（前置条件、三步命令、四个构建命令的区别、目录结构、esbuild 单文件 + banner 原理、Electron 内置 Node 跑服务的验证方法、日常改动对照表、自定义端口/图标/版本/安装版、自验清单、11 条常见报错、与 Docker 版的数据迁移、安全提醒）；README 与部署手册补指向链接，需求确认单补文档清单 | 打包步骤散落在 README 与部署手册里，且踩过的坑（npm 源、banner、文件占用）没地方沉淀，下次重新打包会重复踩 |
 | 2026-11-05 | 新增桌面版：`desktop/` 下用 Electron 做启动器（端口 / 局域网开关 / 数据目录 / 管理员账号密码 / 自动开浏览器 / 启动·停止 / 实时日志），`scripts/build-runtime.mjs` 用 esbuild 把服务端打成单文件（1.3MB）并只带 `dist/client` 与词库种子，运行时 7.2MB；`electron-builder` 出 `ReadBook-1.0.0-portable.exe` 92MB。实测：全新安装默认端口 4321、数据目录 `%APPDATA%\ReadBook\data`、首次启动自动铺词库；改端口 4400 → 启动 → `/api/health` 200（`dict.words=30001`）、`/login` 200、CSS 200 → 停止后端口不再响应；关窗口会先停服务。Electron 38.8.6 自带 Node 22.22 支持 `node:sqlite`，无需另带 node.exe | 需求变更：想要一个双击即用、能设端口再启停服务的 exe，不想装 Docker |
 | 2026-11-05 | 把「使用指南」版本重新构建并部署到容器：`docker compose up -d --build` 通过、镜像 `readbook:latest` 799MB（无悬空镜像残留）、容器 `Up (healthy)`、`/api/health` 返回 `dict.words=30001`；命名卷 `readbook_readbook-data` 旧数据完好（1 个账号 admin + 老人与海）；容器内实测 `/guide` 200、`/about` 404、页面 HTML 无 `RPA` / `你的名字` / `you@example` / `github` / `mailto:` 残留、页脚为「© 2026 ReadBook 英文阅读站」、导航 6 项含「使用指南」；普通账号 375px 导航一行（末项右边缘 341px）、320px 两行不溢出；管理员因多一项「账号管理」（共 7 项）在 375px 仍是两行，属既有行为；空闲内存 78MB，临时验证账号已删 | 页面改版需要上线到容器环境，并确认非 root 用户 + 命名卷下新版页面与数据都正常 |

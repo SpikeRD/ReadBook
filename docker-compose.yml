@@ -11,10 +11,12 @@ services:
     ports:
       - "4321:4321"
     environment:
-      # 上线前务必修改（也可以用 .env 文件，见 compose 的 env_file）
-      SESSION_SECRET: ${SESSION_SECRET:-please-change-this-to-a-long-random-string}
+      # 不再提供弱默认值：SESSION_SECRET 缺失时直接报错，避免用公开串签发会话。
+      # 改完必须 `docker compose up -d`（restart 不会重新注入环境变量）。
+      SESSION_SECRET: ${SESSION_SECRET:?请先在 .env 或环境变量里设置 SESSION_SECRET（随机长字符串）}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # 留空 = 不启用配置管理员，第一个注册的账号成为站长（避免默认 admin/admin）
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       SESSION_DAYS: ${SESSION_DAYS:-30}
       COOKIE_SECURE: ${COOKIE_SECURE:-0}
       ONLINE_DICT_URL: ${ONLINE_DICT_URL:-}

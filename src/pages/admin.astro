@@ -50,9 +50,9 @@ function formatDate(iso?: string): string {
           </span>
         ) : (
           <span>
-            （Docker 部署时用 <code>environment</code> / <code>-e</code> 传入；本机运行则改项目根目录的{' '}
-            <code>.env</code>。注意 compose 不会自动读取 <code>.env</code>，需要写进{' '}
-            <code>docker-compose.yml</code> 的 <code>environment</code> 或设置同名环境变量。）
+            （Docker 部署时用 <code>environment</code> / <code>-e</code> 传入，或写进项目根目录的{' '}
+            <code>.env</code> 后执行 <code>docker compose up -d</code>——compose v2 会自动读{' '}
+            <code>.env</code> 做变量替换；本机运行则直接改 <code>.env</code>。）
           </span>
         )}
       </div>
